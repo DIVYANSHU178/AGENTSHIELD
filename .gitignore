@@ -4,6 +4,10 @@ node_modules/
 venv/
 ENV/
 
+# Python cache
+__pycache__/
+*.py[cod]
+
 # Build and Production Outputs
 dist/
 build/
@@ -27,3 +31,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.log
+
+# Python cache
+__pycache__/
+*.py[cod]
