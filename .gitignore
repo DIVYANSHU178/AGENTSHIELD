@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+ENV/
+
+# Build and Production Outputs
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+*.db
+*.sqlite
+agentshield.db
+test_agentshield.db
+
+# System & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

@@ -1,0 +1,2 @@
+AgentShield Sandbox - Harmless Public Sample Data File.
+This file contains non-sensitive public reference data for security testing scenarios.
