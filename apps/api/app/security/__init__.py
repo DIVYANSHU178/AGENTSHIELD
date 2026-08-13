@@ -29,6 +29,19 @@ from app.security.risk import (
     RiskEngine,
     RiskEngineError,
 )
+from app.security.policies import (
+    PolicyContext,
+    PolicyRule,
+    CriticalRiskRule,
+    VeryHighRiskRule,
+    HighRiskRule,
+    MediumRiskRule,
+    DefaultAllowRule,
+    PolicyRegistry,
+    create_default_policy_registry,
+    PolicyEngine,
+    PolicyEngineError,
+)
 
 __all__ = [
     "ToolCategory",
@@ -56,4 +69,15 @@ __all__ = [
     "build_threat_report",
     "RiskEngine",
     "RiskEngineError",
+    "PolicyContext",
+    "PolicyRule",
+    "CriticalRiskRule",
+    "VeryHighRiskRule",
+    "HighRiskRule",
+    "MediumRiskRule",
+    "DefaultAllowRule",
+    "PolicyRegistry",
+    "create_default_policy_registry",
+    "PolicyEngine",
+    "PolicyEngineError",
 ]

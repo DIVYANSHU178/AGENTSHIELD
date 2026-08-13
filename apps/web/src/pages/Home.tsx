@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, CheckCircle2, Server, Cpu, Database, FileCode } from 'lucide-react';
+import { Shield, ShieldAlert, CheckCircle2, Server, Database, FileCode } from 'lucide-react';
 import { fetchHealthStatus } from '../lib/api';
 import { HealthStatus } from '../types';
 
@@ -40,7 +40,7 @@ export function Home() {
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Phase 3 — Risk Engine Operational
+            Phase 4 — Policy Engine Operational
           </span>
         </div>
       </header>
@@ -127,9 +127,9 @@ export function Home() {
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                 <span>Phase 3 Risk Engine & Threat Scoring: Operational</span>
               </li>
-              <li className="flex items-center gap-2 text-amber-400/90">
-                <Cpu className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>Phase 4 Policy Engine / Decision Layer: Pending</span>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                <span>Phase 4 Policy Engine / Decision Boundary: Operational</span>
               </li>
             </ul>
           </div>
@@ -141,7 +141,7 @@ export function Home() {
           <div className="text-xs text-slate-400 space-y-1">
             <h4 className="font-semibold text-slate-300 text-sm">Security Engine Status Standard</h4>
             <p>
-              This screen confirms that the React + TypeScript frontend, FastAPI backend API, Phase 1 domain contracts, Phase 2 deterministic threat detectors, and Phase 3 risk engine are operational. Phase 4 Policy Engine / Decision Layer is pending integration.
+              This screen confirms that the React + TypeScript frontend, FastAPI backend API, Phase 1 domain contracts, Phase 2 deterministic threat detectors, Phase 3 risk engine, and Phase 4 policy engine are operational.
             </p>
           </div>
         </section>
@@ -149,7 +149,7 @@ export function Home() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500">
-        AgentShield Security Layer &bull; Phase 3 Risk Engine &bull; 48-Hour Hackathon Standard
+        AgentShield Security Layer &bull; Phase 4 Policy Engine &bull; 48-Hour Hackathon Standard
       </footer>
     </div>
   );
