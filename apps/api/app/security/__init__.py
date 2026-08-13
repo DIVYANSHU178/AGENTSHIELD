@@ -42,6 +42,11 @@ from app.security.policies import (
     PolicyEngine,
     PolicyEngineError,
 )
+from app.security.gateway import (
+    SecurityDecisionGateway,
+    SecurityEvaluationResult,
+    SecurityGatewayError,
+)
 
 __all__ = [
     "ToolCategory",
@@ -80,4 +85,7 @@ __all__ = [
     "create_default_policy_registry",
     "PolicyEngine",
     "PolicyEngineError",
+    "SecurityDecisionGateway",
+    "SecurityEvaluationResult",
+    "SecurityGatewayError",
 ]
