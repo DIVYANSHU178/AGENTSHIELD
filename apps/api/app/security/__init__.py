@@ -47,6 +47,16 @@ from app.security.gateway import (
     SecurityEvaluationResult,
     SecurityGatewayError,
 )
+from app.security.enforcement import (
+    SecurityEnforcementBoundary,
+    ExecutionAuthorization,
+    EnforcementResult,
+    calculate_request_fingerprint,
+    calculate_authorization_signature,
+    SecurityEnforcementError,
+    AuthorizationValidationError,
+    TamperedRequestError,
+)
 
 __all__ = [
     "ToolCategory",
@@ -88,4 +98,12 @@ __all__ = [
     "SecurityDecisionGateway",
     "SecurityEvaluationResult",
     "SecurityGatewayError",
+    "SecurityEnforcementBoundary",
+    "ExecutionAuthorization",
+    "EnforcementResult",
+    "calculate_request_fingerprint",
+    "calculate_authorization_signature",
+    "SecurityEnforcementError",
+    "AuthorizationValidationError",
+    "TamperedRequestError",
 ]
