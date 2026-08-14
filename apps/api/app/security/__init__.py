@@ -57,6 +57,17 @@ from app.security.enforcement import (
     AuthorizationValidationError,
     TamperedRequestError,
 )
+from app.security.audit import (
+    SecurityAuditTrail,
+    SecurityEventFactory,
+    SecurityAuditError,
+    InvalidSecurityEventError,
+    AuditRecordingError,
+    sanitize_audit_payload,
+    sanitize_string_value,
+    record_gateway_lifecycle,
+    record_enforcement_lifecycle,
+)
 
 __all__ = [
     "ToolCategory",
@@ -106,4 +117,13 @@ __all__ = [
     "SecurityEnforcementError",
     "AuthorizationValidationError",
     "TamperedRequestError",
+    "SecurityAuditTrail",
+    "SecurityEventFactory",
+    "SecurityAuditError",
+    "InvalidSecurityEventError",
+    "AuditRecordingError",
+    "sanitize_audit_payload",
+    "sanitize_string_value",
+    "record_gateway_lifecycle",
+    "record_enforcement_lifecycle",
 ]

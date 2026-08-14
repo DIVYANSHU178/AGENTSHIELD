@@ -40,7 +40,7 @@ export function Home() {
         </div>
         <div className="flex items-center gap-3">
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Phase 4 — Policy Engine Operational
+            Phase 7 — Audit Trail & Lifecycle Operational
           </span>
         </div>
       </header>
@@ -109,7 +109,7 @@ export function Home() {
           <div className="p-5 bg-slate-900/60 border border-slate-800 rounded-xl space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-200 font-semibold text-sm">
-                <Database className="w-4 h-4 text-emerald-400" /> Database & Security Pipeline
+                <Database className="w-4 h-4 text-emerald-400" /> Security Engine & Audit Pipeline
               </div>
               <span className="text-xs text-slate-400 font-mono">SQLite + SQLAlchemy</span>
             </div>
@@ -117,19 +117,19 @@ export function Home() {
             <ul className="text-xs text-slate-400 space-y-2">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>Phase 1 Domain Contracts & Canonical Models: Operational</span>
+                <span>Phase 1–4 Detectors & Policy Engine: Operational</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>Phase 2 Deterministic Threat Detectors: Operational</span>
+                <span>Phase 5 Security Decision Gateway: Operational</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>Phase 3 Risk Engine & Threat Scoring: Operational</span>
+                <span>Phase 6 Security Enforcement Boundary: Operational</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                <span>Phase 4 Policy Engine / Decision Boundary: Operational</span>
+                <span>Phase 7 Security Audit Trail & Lifecycle: Operational</span>
               </li>
             </ul>
           </div>
@@ -141,7 +141,7 @@ export function Home() {
           <div className="text-xs text-slate-400 space-y-1">
             <h4 className="font-semibold text-slate-300 text-sm">Security Engine Status Standard</h4>
             <p>
-              This screen confirms that the React + TypeScript frontend, FastAPI backend API, Phase 1 domain contracts, Phase 2 deterministic threat detectors, Phase 3 risk engine, and Phase 4 policy engine are operational.
+              This screen confirms that the complete AgentShield security boundary pipeline (Phases 1–7) is operational, including deterministic threat detectors, risk engine, policy engine, decision gateway, enforcement boundary, and immutable audit event lifecycle tracking.
             </p>
           </div>
         </section>
@@ -149,7 +149,7 @@ export function Home() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500">
-        AgentShield Security Layer &bull; Phase 4 Policy Engine &bull; 48-Hour Hackathon Standard
+        AgentShield Security Layer &bull; Phase 7 Security Audit Trail &bull; 48-Hour Hackathon Standard
       </footer>
     </div>
   );
