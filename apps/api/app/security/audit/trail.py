@@ -1,3 +1,4 @@
+import copy
 from typing import List, Optional, Iterable, Tuple, Set
 from app.security.models import SecurityEvent, EventType
 from app.security.audit.errors import InvalidSecurityEventError
@@ -11,7 +12,7 @@ TERMINAL_DECISION_EVENT_TYPES: Set[EventType] = {
 class SecurityAuditTrail:
     """
     Authoritative, deterministic audit trail service for AgentShield.
-    
+
     CRITICAL CONTRACT RULES:
     - AUDIT ONLY: Never grants execution authorization, never alters security decisions,
       never executes tools, commands, or network calls.
@@ -30,6 +31,7 @@ class SecurityAuditTrail:
     def record(self, event: SecurityEvent) -> None:
         """
         Record a SecurityEvent in the audit trail.
+        Stores a defensive deepcopy to ensure external callers cannot mutate internal state.
         Raises InvalidSecurityEventError if event is None or malformed.
         """
         if event is None or not isinstance(event, SecurityEvent):
@@ -43,7 +45,7 @@ class SecurityAuditTrail:
         if not event.actor or not event.actor.strip():
             raise InvalidSecurityEventError("Cannot record SecurityEvent with empty actor.")
 
-        self._events.append(event)
+        self._events.append(copy.deepcopy(event))
 
     def record_all(self, events: Iterable[SecurityEvent]) -> None:
         """Record multiple SecurityEvents sequentially."""
@@ -55,13 +57,13 @@ class SecurityAuditTrail:
     def get_events(self, request_id: Optional[str] = None) -> List[SecurityEvent]:
         """
         Retrieve recorded SecurityEvents.
-        Returns a defensive list copy so that modifying the returned collection
-        does NOT alter internal audit trail storage.
+        Returns a defensive deepcopy list so that modifying the returned collection
+        or any returned event instance does NOT alter internal audit trail storage.
         """
         if request_id is not None:
             req_id_clean = request_id.strip()
-            return [e for e in self._events if e.request_id == req_id_clean]
-        return list(self._events)
+            return [copy.deepcopy(e) for e in self._events if e.request_id == req_id_clean]
+        return [copy.deepcopy(e) for e in self._events]
 
     def get_event_sequence(self, request_id: str) -> List[EventType]:
         """
@@ -90,7 +92,7 @@ class SecurityAuditTrail:
         1. EventType.REQUESTED
         2. EventType.ANALYZED
         3. Terminal decision (ALLOWED, APPROVAL_REQUIRED, or BLOCKED)
-        
+
         Returns True ONLY if all three stages are present in chronological order for this request_id.
         Partial sequences return False.
         """

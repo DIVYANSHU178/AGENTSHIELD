@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import Dict, Any, List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.security.models.enums import ThreatType, Severity
-from app.security.models.utils import generate_uuid, utc_now, ensure_utc
+from app.security.models.utils import generate_uuid, utc_now, ensure_utc, deep_freeze, FrozenDict
 
 class ThreatSignal(BaseModel):
     """
     Represents an individual security signal detected during input/tool inspection.
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Deeply immutable representation configured with Pydantic V2 frozen=True.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -35,11 +35,18 @@ class ThreatSignal(BaseModel):
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
 
+    @field_validator("evidence", "metadata", mode="after")
+    @classmethod
+    def freeze_dict(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
+
 
 class ThreatReport(BaseModel):
     """
     Aggregated threat detection findings produced for a specific ToolRequest.
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Deeply immutable representation configured with Pydantic V2 frozen=True.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -57,6 +64,13 @@ class ThreatReport(BaseModel):
         if isinstance(value, str) and not value.strip():
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def freeze_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
 
     @field_validator("analyzed_at", mode="before")
     @classmethod

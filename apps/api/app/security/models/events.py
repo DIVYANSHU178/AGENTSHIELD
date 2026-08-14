@@ -2,12 +2,12 @@ from datetime import datetime
 from typing import Dict, Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.security.models.enums import EventType
-from app.security.models.utils import generate_uuid, utc_now, ensure_utc
+from app.security.models.utils import generate_uuid, utc_now, ensure_utc, deep_freeze, FrozenDict
 
 class SecurityEvent(BaseModel):
     """
     Audit log record capturing lifecycle activity within the security boundary.
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Deeply immutable representation configured with Pydantic V2 frozen=True and deep_freeze.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -25,6 +25,13 @@ class SecurityEvent(BaseModel):
         if isinstance(value, str) and not value.strip():
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
+
+    @field_validator("details", "metadata", mode="after")
+    @classmethod
+    def freeze_nested_payload(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
 
     @field_validator("timestamp", mode="before")
     @classmethod

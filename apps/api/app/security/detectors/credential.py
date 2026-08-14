@@ -31,6 +31,10 @@ class CredentialDetector(BaseDetector):
                 r"\bsecrets\.yaml\b",
                 r"\bsecrets\.yml\b",
                 r"\bconfig\.json\b",
+                r"(?:^|[/\\]|\b)application_default_credentials\.json(?:\b|$)",
+                r"(?:^|[/\\]|\b)(?:cloud[/\\\.])?aws[/\\]credentials(?:\b|$)",
+                r"(?:^|[/\\]|\b)(?:cloud[/\\\.])?aws[/\\]config(?:\b|$)",
+                r"(?:^|[/\\]|\b)(?:cloud[/\\\.])?azure[/\\]credentials(?:\b|$)",
             ],
             Severity.HIGH,
         ),
@@ -52,6 +56,7 @@ class CredentialDetector(BaseDetector):
             "Access to Cloud / API Credential Identifier",
             [
                 r"\bapi[_-]?key\b",
+                r"\bcloud[_-]?api[_-]?key\b",
                 r"\baccess[_-]?token\b",
                 r"\brefresh[_-]?token\b",
                 r"\bclient[_-]?secret\b",

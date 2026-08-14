@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import hmac
 import json
@@ -5,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.security.models import ToolRequest, SecurityDecisionType
-from app.security.models.utils import generate_uuid, utc_now, ensure_utc
+from app.security.models.utils import generate_uuid, utc_now, ensure_utc, deep_freeze, FrozenDict
 from app.config.settings import settings
 
 def calculate_request_fingerprint(request: ToolRequest) -> str:
@@ -100,7 +101,7 @@ class ExecutionAuthorization(BaseModel):
     Immutable capability token representing explicit authorization to proceed toward future execution.
     Bound cryptographically to a specific evaluated ToolRequest via request_id, SHA-256 request_fingerprint,
     and an unforgeable HMAC-SHA256 cryptographic signature.
-    
+
     Can ONLY be issued for SecurityDecisionType.ALLOW.
     """
     model_config = ConfigDict(frozen=True)
@@ -142,6 +143,13 @@ class ExecutionAuthorization(BaseModel):
         if isinstance(value, str) and not value.strip():
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def freeze_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
 
     @field_validator("issued_at", "expires_at", mode="before")
     @classmethod

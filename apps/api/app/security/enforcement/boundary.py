@@ -20,10 +20,10 @@ from app.config.settings import settings
 class SecurityEnforcementBoundary:
     """
     Authoritative Enforcement Boundary for AgentShield.
-    
+
     Establishes the fundamental security boundary between policy decision and execution:
     NO VALID AUTHORIZATION -> NO EXECUTION
-    
+
     CRITICAL CONTRACT RULES:
     - Must be deterministic, local, explainable, and fail-closed.
     - ONLY SecurityDecisionType.ALLOW decisions may produce ExecutionAuthorization credentials.
@@ -216,9 +216,10 @@ class SecurityEnforcementBoundary:
                 return False
 
             # 3. Expiration Verification
-            if authorization.expires_at is not None:
-                if utc_now() > authorization.expires_at:
-                    return False
+            if authorization.expires_at is None:
+                return False
+            if utc_now() > authorization.expires_at:
+                return False
 
             return True
         except Exception:

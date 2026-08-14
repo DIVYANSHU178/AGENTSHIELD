@@ -3,13 +3,13 @@ from typing import Dict, Any, Optional, List
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.security.models.enums import ToolCategory, ActionType
 from app.security.models.agent import AgentIdentity
-from app.security.models.utils import generate_uuid, utc_now, ensure_utc
+from app.security.models.utils import generate_uuid, utc_now, ensure_utc, deep_freeze, FrozenDict
 
 class ToolRequest(BaseModel):
     """
     Canonical representation of a tool execution request initiated by an AI Agent.
     Every tool request must pass through AgentShield before execution.
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Deeply immutable representation configured with Pydantic V2 frozen=True and deep_freeze.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -32,6 +32,13 @@ class ToolRequest(BaseModel):
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
 
+    @field_validator("parameters", "metadata", mode="after")
+    @classmethod
+    def freeze_nested_dict(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
+
     @field_validator("timestamp", mode="before")
     @classmethod
     def validate_utc_timestamp(cls, value: Any) -> Any:
@@ -43,7 +50,7 @@ class ToolRequest(BaseModel):
 class SecurityContext(BaseModel):
     """
     Contextual security metadata available to AgentShield during inspection.
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Deeply immutable representation configured with Pydantic V2 frozen=True.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -61,3 +68,10 @@ class SecurityContext(BaseModel):
         if isinstance(value, str) and not value.strip():
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def freeze_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
