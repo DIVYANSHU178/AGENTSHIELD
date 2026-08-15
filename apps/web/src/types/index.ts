@@ -60,6 +60,16 @@ export type EventType =
   | 'EXECUTED'
   | 'FAILED';
 
+export type RuntimeExecutionStatus =
+  | 'PENDING'
+  | 'AUTHORIZED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'TIMED_OUT'
+  | 'DENIED';
+
+export type ComponentStatus = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+
 // Phase 1 Security Domain Interfaces
 export interface AgentIdentity {
   agent_id: string;
@@ -146,4 +156,90 @@ export interface SecurityEvent {
   actor: string;
   details?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+}
+
+// Phase 10 Operations Console Contracts
+export interface ComponentHealth {
+  name: string;
+  status: ComponentStatus;
+  details: string;
+  checked_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OverallSystemHealth {
+  status: ComponentStatus;
+  components: ComponentHealth[];
+  checked_at: string;
+  version: string;
+  summary: string;
+}
+
+export interface SecurityMetrics {
+  total_requests: number;
+  allowed: number;
+  require_approval: number;
+  blocked: number;
+  authorized: number;
+  denied_execution: number;
+  successful_execution: number;
+  failed_execution: number;
+  timed_out_execution: number;
+  detected_threats: number;
+  critical_threats: number;
+  high_threats: number;
+  audit_events: number;
+  runtime_requests: number;
+  runtime_failures: number;
+  calculated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ThreatActivityItem {
+  threat_id: string;
+  threat_type: ThreatType;
+  severity: Severity;
+  detector: string;
+  request_id: string;
+  title: string;
+  description: string;
+  confidence: number;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface SecurityDecisionItem {
+  decision_id: string;
+  request_id: string;
+  decision: SecurityDecisionType;
+  risk_score: number;
+  severity: Severity;
+  policy_id: string;
+  reason: string;
+  threat_count: number;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionActivityItem {
+  execution_id: string;
+  request_id: string;
+  tool_name: string;
+  tool_category: ToolCategory;
+  action: ActionType;
+  status: RuntimeExecutionStatus;
+  success: boolean;
+  duration_ms: number;
+  error?: string | null;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface OperationsOverview {
+  overall_health: OverallSystemHealth;
+  metrics: SecurityMetrics;
+  recent_threats: ThreatActivityItem[];
+  recent_decisions: SecurityDecisionItem[];
+  recent_executions: ExecutionActivityItem[];
+  retrieved_at: string;
 }

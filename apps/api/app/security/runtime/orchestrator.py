@@ -48,8 +48,15 @@ class AgentRuntimeOrchestrator:
         sandbox: Optional[SandboxExecutionBoundary] = None,
         audit_trail: Optional[SecurityAuditTrail] = None,
         default_sandbox_policy: Optional[SandboxExecutionPolicy] = None,
+        operations_service: Optional[Any] = None,
     ) -> None:
-        self._audit_trail = audit_trail
+        self._operations_service = operations_service
+        if audit_trail is not None:
+            self._audit_trail = audit_trail
+        elif operations_service is not None and getattr(operations_service, "audit_trail", None) is not None:
+            self._audit_trail = operations_service.audit_trail
+        else:
+            self._audit_trail = None
         self._gateway = gateway or SecurityDecisionGateway()
         self._boundary = boundary or SecurityEnforcementBoundary(gateway=self._gateway)
         self._sandbox = sandbox or SandboxExecutionBoundary(
@@ -79,6 +86,14 @@ class AgentRuntimeOrchestrator:
     def default_sandbox_policy(self) -> SandboxExecutionPolicy:
         return self._default_sandbox_policy
 
+    def _finalize_result(self, result: RuntimeExecutionResult) -> RuntimeExecutionResult:
+        if self._operations_service is not None:
+            try:
+                self._operations_service.record_runtime_execution(result)
+            except Exception:
+                pass
+        return result
+
     def orchestrate(
         self,
         request: Any,
@@ -92,15 +107,17 @@ class AgentRuntimeOrchestrator:
 
         # 1. Type validation and Canonical ToolRequest resolution
         if request is None:
-            return RuntimeExecutionResult(
-                request_id="req-null",
-                status=RuntimeExecutionStatus.DENIED,
-                executed=False,
-                success=False,
-                error="Runtime request is null; execution denied.",
-                started_at=started_at,
-                completed_at=utc_now(),
-                duration_ms=0.0,
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id="req-null",
+                    status=RuntimeExecutionStatus.DENIED,
+                    executed=False,
+                    success=False,
+                    error="Runtime request is null; execution denied.",
+                    started_at=started_at,
+                    completed_at=utc_now(),
+                    duration_ms=0.0,
+                )
             )
 
         if isinstance(request, RuntimeExecutionRequest):
@@ -110,15 +127,17 @@ class AgentRuntimeOrchestrator:
             tool_req = request
             req_id = request.request_id
         else:
-            return RuntimeExecutionResult(
-                request_id="req-invalid-type",
-                status=RuntimeExecutionStatus.DENIED,
-                executed=False,
-                success=False,
-                error=f"Invalid runtime request runtime type '{type(request).__name__}'; execution denied.",
-                started_at=started_at,
-                completed_at=utc_now(),
-                duration_ms=0.0,
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id="req-invalid-type",
+                    status=RuntimeExecutionStatus.DENIED,
+                    executed=False,
+                    success=False,
+                    error=f"Invalid runtime request runtime type '{type(request).__name__}'; execution denied.",
+                    started_at=started_at,
+                    completed_at=utc_now(),
+                    duration_ms=0.0,
+                )
             )
 
         try:
@@ -147,20 +166,22 @@ class AgentRuntimeOrchestrator:
                 completed_at = utc_now()
                 duration_ms = (completed_at - started_at).total_seconds() * 1000.0
 
-                return RuntimeExecutionResult(
-                    request_id=req_id,
-                    status=RuntimeExecutionStatus.DENIED,
-                    decision=decision,
-                    authorized=False,
-                    executed=False,
-                    success=False,
-                    evaluation=eval_res,
-                    enforcement=enf_res,
-                    error=f"Runtime execution denied by security decision: {decision.value}. {eval_res.decision.reason}",
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    duration_ms=duration_ms,
-                    metadata={"policy_id": eval_res.decision.policy_id},
+                return self._finalize_result(
+                    RuntimeExecutionResult(
+                        request_id=req_id,
+                        status=RuntimeExecutionStatus.DENIED,
+                        decision=decision,
+                        authorized=False,
+                        executed=False,
+                        success=False,
+                        evaluation=eval_res,
+                        enforcement=enf_res,
+                        error=f"Runtime execution denied by security decision: {decision.value}. {eval_res.decision.reason}",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        duration_ms=duration_ms,
+                        metadata={"policy_id": eval_res.decision.policy_id},
+                    )
                 )
 
             # 4. ALLOW Decision -> Obtain Phase 6 Enforcement Authorization
@@ -175,20 +196,22 @@ class AgentRuntimeOrchestrator:
                 completed_at = utc_now()
                 duration_ms = (completed_at - started_at).total_seconds() * 1000.0
 
-                return RuntimeExecutionResult(
-                    request_id=req_id,
-                    status=RuntimeExecutionStatus.DENIED,
-                    decision=decision,
-                    authorized=False,
-                    executed=False,
-                    success=False,
-                    evaluation=eval_res,
-                    enforcement=enf_res,
-                    error="Execution authorization was denied by enforcement boundary.",
-                    started_at=started_at,
-                    completed_at=completed_at,
-                    duration_ms=duration_ms,
-                    metadata={"policy_id": eval_res.decision.policy_id},
+                return self._finalize_result(
+                    RuntimeExecutionResult(
+                        request_id=req_id,
+                        status=RuntimeExecutionStatus.DENIED,
+                        decision=decision,
+                        authorized=False,
+                        executed=False,
+                        success=False,
+                        evaluation=eval_res,
+                        enforcement=enf_res,
+                        error="Execution authorization was denied by enforcement boundary.",
+                        started_at=started_at,
+                        completed_at=completed_at,
+                        duration_ms=duration_ms,
+                        metadata={"policy_id": eval_res.decision.policy_id},
+                    )
                 )
 
             # 5. Sandboxed Execution via SandboxExecutionBoundary
@@ -224,38 +247,42 @@ class AgentRuntimeOrchestrator:
             completed_at = utc_now()
             duration_ms = (completed_at - started_at).total_seconds() * 1000.0
 
-            return RuntimeExecutionResult(
-                request_id=req_id,
-                status=status,
-                decision=decision,
-                authorized=True,
-                executed=executed,
-                success=success,
-                authorization_id=enf_res.authorization.authorization_id,
-                evaluation=eval_res,
-                enforcement=enf_res,
-                sandbox_result=sandbox_res,
-                result=result,
-                error=err_msg,
-                started_at=started_at,
-                completed_at=completed_at,
-                duration_ms=duration_ms,
-                metadata={
-                    "policy_id": eval_res.decision.policy_id,
-                    "sandbox_policy_id": active_policy.policy_id,
-                },
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id=req_id,
+                    status=status,
+                    decision=decision,
+                    authorized=True,
+                    executed=executed,
+                    success=success,
+                    authorization_id=enf_res.authorization.authorization_id,
+                    evaluation=eval_res,
+                    enforcement=enf_res,
+                    sandbox_result=sandbox_res,
+                    result=result,
+                    error=err_msg,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_ms=duration_ms,
+                    metadata={
+                        "policy_id": eval_res.decision.policy_id,
+                        "sandbox_policy_id": active_policy.policy_id,
+                    },
+                )
             )
 
         except Exception as exc:
             completed_at = utc_now()
             duration_ms = (completed_at - started_at).total_seconds() * 1000.0
-            return RuntimeExecutionResult(
-                request_id=req_id,
-                status=RuntimeExecutionStatus.FAILED,
-                executed=False,
-                success=False,
-                error=f"Agent runtime orchestration failure: {str(exc)}",
-                started_at=started_at,
-                completed_at=completed_at,
-                duration_ms=duration_ms,
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id=req_id,
+                    status=RuntimeExecutionStatus.FAILED,
+                    executed=False,
+                    success=False,
+                    error=f"Agent runtime orchestration failure: {str(exc)}",
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_ms=duration_ms,
+                )
             )
