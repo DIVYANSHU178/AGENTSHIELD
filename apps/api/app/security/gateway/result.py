@@ -7,14 +7,14 @@ from app.security.models import (
     RiskAssessment,
     SecurityDecision,
 )
-from app.security.models.utils import utc_now, ensure_utc
+from app.security.models.utils import utc_now, ensure_utc, deep_freeze, FrozenDict
 
 class SecurityEvaluationResult(BaseModel):
     """
     Unified, serializable result produced by SecurityDecisionGateway.
     Encapsulates all evaluation artifacts generated during security pipeline execution:
     ToolRequest -> ThreatReport -> RiskAssessment -> SecurityDecision
-    Immutable representation configured with Pydantic V2 frozen=True.
+    Immutable representation configured with Pydantic V2 frozen=True and deep immutability.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -44,6 +44,13 @@ class SecurityEvaluationResult(BaseModel):
                 f"!= ToolRequest request_id ('{req_id}')."
             )
         return self
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def freeze_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
 
     @field_validator("evaluated_at", mode="before")
     @classmethod

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from app.security.models import SecurityDecisionType
-from app.security.models.utils import utc_now, ensure_utc
+from app.security.models.utils import utc_now, ensure_utc, deep_freeze, FrozenDict
 from app.security.enforcement.authorization import ExecutionAuthorization
 
 class EnforcementResult(BaseModel):
@@ -50,6 +50,13 @@ class EnforcementResult(BaseModel):
         if isinstance(value, str) and not value.strip():
             raise ValueError(f"Field '{info.field_name}' must not be an empty string")
         return value
+
+    @field_validator("metadata", mode="after")
+    @classmethod
+    def freeze_metadata(cls, value: Any) -> Any:
+        if value is None:
+            return FrozenDict()
+        return deep_freeze(value)
 
     @field_validator("evaluated_at", mode="before")
     @classmethod
