@@ -123,9 +123,14 @@ export const EventTypeBadge: React.FC<{ type: EventType }> = ({ type }) => {
     ANALYZED: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
     ALLOWED: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
     APPROVAL_REQUIRED: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    APPROVAL_APPROVED: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-semibold',
+    APPROVAL_REJECTED: 'bg-rose-500/10 text-rose-400 border-rose-500/30 font-semibold',
+    APPROVAL_EXPIRED: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+    APPROVAL_CANCELLED: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30',
     BLOCKED: 'bg-rose-500/10 text-rose-400 border-rose-500/30 font-bold',
     EXECUTED: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
     FAILED: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    DENIED: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
   };
 
   return (

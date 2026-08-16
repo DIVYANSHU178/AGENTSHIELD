@@ -57,8 +57,16 @@ export type EventType =
   | 'ALLOWED'
   | 'BLOCKED'
   | 'APPROVAL_REQUIRED'
+  | 'APPROVAL_APPROVED'
+  | 'APPROVAL_REJECTED'
+  | 'APPROVAL_EXPIRED'
+  | 'APPROVAL_CANCELLED'
   | 'EXECUTED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'DENIED';
+
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+export type ApprovalDecision = 'APPROVE' | 'REJECT';
 
 export type RuntimeExecutionStatus =
   | 'PENDING'
@@ -242,4 +250,43 @@ export interface OperationsOverview {
   recent_decisions: SecurityDecisionItem[];
   recent_executions: ExecutionActivityItem[];
   retrieved_at: string;
+}
+
+// Phase 11 Approval Domain Interfaces
+export interface ReviewerIdentity {
+  reviewer_id: string;
+  reviewer_name?: string | null;
+  role?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ApprovalResolution {
+  approval_id: string;
+  request_id: string;
+  reviewer: ReviewerIdentity;
+  decision: ApprovalDecision;
+  reason: string;
+  resolved_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ApprovalRequest {
+  approval_id: string;
+  request_id: string;
+  agent: AgentIdentity;
+  tool_name: string;
+  tool_category: ToolCategory;
+  action: ActionType;
+  target: string;
+  parameters: Record<string, unknown>;
+  destination?: string | null;
+  request_fingerprint: string;
+  risk_score: number;
+  severity: Severity;
+  threat_summary: string;
+  created_at: string;
+  expires_at: string;
+  status: ApprovalStatus;
+  resolution?: ApprovalResolution | null;
+  metadata?: Record<string, unknown>;
 }

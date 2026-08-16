@@ -80,4 +80,34 @@ describe('Phase 1 TypeScript Contracts', () => {
     expect(decision.decision).toBe('BLOCK');
     expect(event.event_type).toBe('BLOCKED');
   });
+
+  it('instantiates valid Phase 11 ApprovalRequest and ApprovalResolution structures', () => {
+    const reviewer = {
+      reviewer_id: 'rev-01',
+      reviewer_name: 'Security Admin',
+      role: 'security_lead',
+    };
+
+    const approval = {
+      approval_id: 'app-01',
+      request_id: 'req-01',
+      agent: { agent_id: 'ag-01', name: 'Agent-1' },
+      tool_name: 'calculator.compute',
+      tool_category: 'SYSTEM' as const,
+      action: 'EXECUTE' as const,
+      target: 'system.prompt',
+      parameters: { op: 'add', a: 1, b: 2 },
+      request_fingerprint: 'sha256_mock_fingerprint',
+      risk_score: 55.0,
+      severity: 'MEDIUM' as const,
+      threat_summary: 'Instruction override review',
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+      status: 'PENDING' as const,
+    };
+
+    expect(approval.status).toBe('PENDING');
+    expect(approval.risk_score).toBe(55.0);
+    expect(reviewer.reviewer_id).toBe('rev-01');
+  });
 });

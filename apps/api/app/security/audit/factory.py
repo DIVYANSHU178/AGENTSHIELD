@@ -212,3 +212,32 @@ class SecurityEventFactory:
             details=details,
             metadata={"stage": "execution_failure"},
         )
+
+    @staticmethod
+    def create_approval_event(
+        request_id: str,
+        event_type: EventType,
+        approval_id: str,
+        actor: str = "approval_workflow",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> SecurityEvent:
+        """
+        Construct a canonical approval workflow security audit event
+        (APPROVAL_APPROVED, APPROVAL_REJECTED, APPROVAL_EXPIRED, APPROVAL_CANCELLED).
+        """
+        if not request_id or not request_id.strip():
+            raise ValueError("request_id must not be empty.")
+
+        payload = {"approval_id": approval_id}
+        if details:
+            payload.update(details)
+
+        return SecurityEvent(
+            event_id=generate_uuid(),
+            request_id=request_id.strip(),
+            event_type=event_type,
+            timestamp=utc_now(),
+            actor=actor,
+            details=sanitize_audit_payload(payload),
+            metadata={"stage": "approval_workflow"},
+        )

@@ -226,6 +226,181 @@ class SecurityEnforcementBoundary:
             # FAIL-CLOSED: Any validation calculation error returns False
             return False
 
+    def authorize_approval(
+        self,
+        request: Any,
+        approval: Any,
+    ) -> EnforcementResult:
+        """
+        Authoritatively validate an approved ApprovalRequest against the candidate ToolRequest,
+        and issue a fresh, cryptographically signed ExecutionAuthorization.
+
+        INVARIANTS:
+        - NEVER reuses an old authorization.
+        - NEVER allows unapproved, expired, cancelled, or rejected approvals.
+        - Strictly verifies request content matches approval fingerprint (tamper-detection).
+        - Issues fresh ExecutionAuthorization with unique ID and fresh expiration window.
+        """
+        if request is None or approval is None:
+            return self._fail_closed_result(
+                request_id=getattr(request, "request_id", getattr(approval, "request_id", "req-unknown")),
+                correlation_id=getattr(request, "request_id", "req-unknown"),
+                reason="Cannot authorize approval: ToolRequest or ApprovalRequest is null.",
+            )
+
+        if not isinstance(request, ToolRequest):
+            return self._fail_closed_result(
+                request_id=getattr(approval, "request_id", "req-unknown"),
+                correlation_id="req-unknown",
+                reason=f"Invalid request type '{type(request).__name__}', expected ToolRequest.",
+            )
+
+        from app.security.approval.contracts import ApprovalRequest, ApprovalStatus, ApprovalDecision
+        if not isinstance(approval, ApprovalRequest):
+            return self._fail_closed_result(
+                request_id=request.request_id,
+                correlation_id=request.request_id,
+                reason=f"Invalid approval type '{type(approval).__name__}', expected ApprovalRequest.",
+            )
+
+        req_id = request.request_id
+        corr_id = req_id
+
+        try:
+            # 1. Approval Status Check
+            if approval.status != ApprovalStatus.APPROVED:
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason=f"Approval request '{approval.approval_id}' has status '{approval.status.value}', expected APPROVED.",
+                    metadata={"approval_id": approval.approval_id, "approval_status": approval.status.value},
+                )
+
+            # 2. Approval Expiration Check
+            if approval.is_expired():
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason=f"Approval request '{approval.approval_id}' has expired.",
+                    metadata={"approval_id": approval.approval_id, "expired": True},
+                )
+
+            # 3. Request Binding Integrity Check
+            if approval.request_id != request.request_id:
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason=f"Request ID mismatch: request specifies '{request.request_id}' but approval is bound to '{approval.request_id}'.",
+                    metadata={"approval_id": approval.approval_id},
+                )
+
+            if approval.agent.agent_id != request.agent.agent_id:
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason="Agent identity mismatch: approval is bound to a different agent ID.",
+                    metadata={"approval_id": approval.approval_id},
+                )
+
+            # 4. Fingerprint / Content Tampering Check
+            expected_fingerprint = calculate_request_fingerprint(request)
+            if approval.request_fingerprint != expected_fingerprint:
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason="Request fingerprint mismatch: request parameters or target were altered after approval.",
+                    metadata={"approval_id": approval.approval_id, "tampered": True},
+                )
+
+            # 5. Reviewer Resolution Check
+            if approval.resolution is None or approval.resolution.decision != ApprovalDecision.APPROVE:
+                return EnforcementResult(
+                    request_id=req_id,
+                    correlation_id=corr_id,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    authorization=None,
+                    reason="Missing or invalid reviewer approval resolution.",
+                    metadata={"approval_id": approval.approval_id},
+                )
+
+            # 6. Issue FRESH ExecutionAuthorization credential
+            if not self._secret_key:
+                self._secret_key = settings.get_authorization_secret()
+
+            auth_id = generate_uuid()
+            issued_at = utc_now()
+            expires_at = issued_at + timedelta(seconds=self._default_token_ttl_seconds)
+            policy_id = f"approval.approved.{approval.approval_id[:8]}"
+            risk_score = approval.risk_score
+
+            signature = calculate_authorization_signature(
+                authorization_id=auth_id,
+                request_id=req_id,
+                correlation_id=corr_id,
+                decision_value=SecurityDecisionType.ALLOW.value,
+                request_fingerprint=approval.request_fingerprint,
+                policy_id=policy_id,
+                risk_score=risk_score,
+                issued_at=issued_at,
+                expires_at=expires_at,
+                secret_key=self._secret_key,
+            )
+
+            authorization = ExecutionAuthorization(
+                authorization_id=auth_id,
+                request_id=req_id,
+                correlation_id=corr_id,
+                decision=SecurityDecisionType.ALLOW,
+                request_fingerprint=approval.request_fingerprint,
+                policy_id=policy_id,
+                risk_score=risk_score,
+                issued_at=issued_at,
+                expires_at=expires_at,
+                signature=signature,
+                metadata={
+                    "approved_by": approval.resolution.reviewer.reviewer_id,
+                    "approval_id": approval.approval_id,
+                    "approval_reason": approval.resolution.reason,
+                    "enforced_by": "SecurityEnforcementBoundary",
+                },
+            )
+
+            return EnforcementResult(
+                request_id=req_id,
+                correlation_id=corr_id,
+                decision=SecurityDecisionType.ALLOW,
+                authorized=True,
+                authorization=authorization,
+                reason=f"Execution authorization granted following verified human approval '{approval.approval_id}'.",
+                metadata={
+                    "approval_id": approval.approval_id,
+                    "reviewer_id": approval.resolution.reviewer.reviewer_id,
+                },
+            )
+
+        except Exception as exc:
+            return self._fail_closed_result(
+                request_id=req_id,
+                correlation_id=corr_id,
+                reason=f"Internal exception during approval authorization: {str(exc)}",
+            )
+
     def _fail_closed_result(
         self,
         request_id: str,

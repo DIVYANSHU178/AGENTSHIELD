@@ -49,12 +49,16 @@ class AgentRuntimeOrchestrator:
         audit_trail: Optional[SecurityAuditTrail] = None,
         default_sandbox_policy: Optional[SandboxExecutionPolicy] = None,
         operations_service: Optional[Any] = None,
+        approval_service: Optional[Any] = None,
     ) -> None:
         self._operations_service = operations_service
+        self._approval_service = approval_service
         if audit_trail is not None:
             self._audit_trail = audit_trail
         elif operations_service is not None and getattr(operations_service, "audit_trail", None) is not None:
             self._audit_trail = operations_service.audit_trail
+        elif approval_service is not None and getattr(approval_service, "audit_trail", None) is not None:
+            self._audit_trail = approval_service.audit_trail
         else:
             self._audit_trail = None
         self._gateway = gateway or SecurityDecisionGateway()
@@ -81,6 +85,10 @@ class AgentRuntimeOrchestrator:
     @property
     def audit_trail(self) -> Optional[SecurityAuditTrail]:
         return self._audit_trail
+
+    @property
+    def approval_service(self) -> Optional[Any]:
+        return self._approval_service
 
     @property
     def default_sandbox_policy(self) -> SandboxExecutionPolicy:
@@ -163,8 +171,21 @@ class AgentRuntimeOrchestrator:
                     except Exception:
                         pass
 
+                approval_id = None
+                if decision == SecurityDecisionType.REQUIRE_APPROVAL and self._approval_service is not None:
+                    try:
+                        approval = self._approval_service.create_approval(eval_res)
+                        approval_id = approval.approval_id
+                    except Exception:
+                        pass
+
                 completed_at = utc_now()
                 duration_ms = (completed_at - started_at).total_seconds() * 1000.0
+
+                result_meta = {"policy_id": eval_res.decision.policy_id}
+                if approval_id:
+                    result_meta["approval_id"] = approval_id
+                    result_meta["approval_status"] = "PENDING"
 
                 return self._finalize_result(
                     RuntimeExecutionResult(
@@ -180,7 +201,7 @@ class AgentRuntimeOrchestrator:
                         started_at=started_at,
                         completed_at=completed_at,
                         duration_ms=duration_ms,
-                        metadata={"policy_id": eval_res.decision.policy_id},
+                        metadata=result_meta,
                     )
                 )
 
@@ -286,3 +307,184 @@ class AgentRuntimeOrchestrator:
                     duration_ms=duration_ms,
                 )
             )
+
+    def orchestrate_with_approval(
+        self,
+        approval_id: str,
+        candidate_request: Optional[Any] = None,
+        sandbox_policy: Optional[SandboxExecutionPolicy] = None,
+    ) -> RuntimeExecutionResult:
+        """
+        Execute an explicitly approved tool request through the secure execution pipeline.
+
+        INVARIANTS:
+        1. Approval is NOT authorization.
+        2. Validates approval status is APPROVED and not expired.
+        3. Obtains fresh ExecutionAuthorization from SecurityEnforcementBoundary.
+        4. Executes solely within SandboxExecutionBoundary.
+        5. Records comprehensive audit trail.
+        """
+        started_at = utc_now()
+
+        if not approval_id:
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id="req-null-approval",
+                    status=RuntimeExecutionStatus.DENIED,
+                    executed=False,
+                    success=False,
+                    error="Approval ID is required to orchestrate approved execution.",
+                    started_at=started_at,
+                    completed_at=utc_now(),
+                    duration_ms=0.0,
+                )
+            )
+
+        if self._approval_service is None:
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id="req-no-approval-service",
+                    status=RuntimeExecutionStatus.DENIED,
+                    executed=False,
+                    success=False,
+                    error="Approval service is not configured on runtime orchestrator.",
+                    started_at=started_at,
+                    completed_at=utc_now(),
+                    duration_ms=0.0,
+                )
+            )
+
+        try:
+            approval = self._approval_service.get_approval(approval_id)
+        except Exception as exc:
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id="req-approval-not-found",
+                    status=RuntimeExecutionStatus.DENIED,
+                    executed=False,
+                    success=False,
+                    error=f"Failed to retrieve approval request: {str(exc)}",
+                    started_at=started_at,
+                    completed_at=utc_now(),
+                    duration_ms=0.0,
+                )
+            )
+
+        req_id = approval.request_id
+
+        # 1. Resolve ToolRequest
+        if candidate_request is not None:
+            if isinstance(candidate_request, RuntimeExecutionRequest):
+                tool_req = candidate_request.to_tool_request()
+            elif isinstance(candidate_request, ToolRequest):
+                tool_req = candidate_request
+            else:
+                return self._finalize_result(
+                    RuntimeExecutionResult(
+                        request_id=req_id,
+                        status=RuntimeExecutionStatus.DENIED,
+                        executed=False,
+                        success=False,
+                        error=f"Invalid candidate request type '{type(candidate_request).__name__}'.",
+                        started_at=started_at,
+                        completed_at=utc_now(),
+                        duration_ms=0.0,
+                    )
+                )
+        else:
+            # Reconstruct canonical ToolRequest from bound approval
+            tool_req = ToolRequest(
+                request_id=approval.request_id,
+                agent=approval.agent,
+                tool_name=approval.tool_name,
+                tool_category=approval.tool_category,
+                action=approval.action,
+                target=approval.target,
+                parameters=approval.parameters,
+                destination=approval.destination,
+            )
+
+        # 2. Invoke SecurityEnforcementBoundary for fresh authorization
+        enf_res = self._boundary.authorize_approval(request=tool_req, approval=approval)
+        if self._audit_trail is not None:
+            try:
+                record_enforcement_lifecycle(self._audit_trail, enf_res)
+            except Exception:
+                pass
+
+        if not enf_res.authorized or enf_res.authorization is None:
+            completed_at = utc_now()
+            duration_ms = (completed_at - started_at).total_seconds() * 1000.0
+            return self._finalize_result(
+                RuntimeExecutionResult(
+                    request_id=req_id,
+                    status=RuntimeExecutionStatus.DENIED,
+                    decision=SecurityDecisionType.REQUIRE_APPROVAL,
+                    authorized=False,
+                    executed=False,
+                    success=False,
+                    enforcement=enf_res,
+                    error=enf_res.reason,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_ms=duration_ms,
+                    metadata={"approval_id": approval.approval_id},
+                )
+            )
+
+        # 3. Execute in SandboxExecutionBoundary with fresh authorization
+        active_policy = sandbox_policy or self._default_sandbox_policy
+        sandbox_res = self._sandbox.execute(tool_req, enf_res.authorization, policy=active_policy)
+
+        # 4. Map execution status
+        if sandbox_res.status == SandboxStatus.COMPLETED:
+            status = RuntimeExecutionStatus.COMPLETED
+            executed = True
+            success = True
+            result = sandbox_res.result
+            err_msg = None
+        elif sandbox_res.status == SandboxStatus.TIMED_OUT:
+            status = RuntimeExecutionStatus.TIMED_OUT
+            executed = True
+            success = False
+            result = None
+            err_msg = sandbox_res.error
+        elif sandbox_res.status == SandboxStatus.FAILED:
+            status = RuntimeExecutionStatus.FAILED
+            executed = True
+            success = False
+            result = None
+            err_msg = sandbox_res.error
+        else:  # SandboxStatus.DENIED
+            status = RuntimeExecutionStatus.DENIED
+            executed = False
+            success = False
+            result = None
+            err_msg = sandbox_res.error
+
+        completed_at = utc_now()
+        duration_ms = (completed_at - started_at).total_seconds() * 1000.0
+
+        return self._finalize_result(
+            RuntimeExecutionResult(
+                request_id=req_id,
+                status=status,
+                decision=SecurityDecisionType.ALLOW,
+                authorized=True,
+                executed=executed,
+                success=success,
+                authorization_id=enf_res.authorization.authorization_id,
+                enforcement=enf_res,
+                sandbox_result=sandbox_res,
+                result=result,
+                error=err_msg,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                metadata={
+                    "approval_id": approval.approval_id,
+                    "approved_by": approval.resolution.reviewer.reviewer_id if approval.resolution else None,
+                    "sandbox_policy_id": active_policy.policy_id,
+                },
+            )
+        )

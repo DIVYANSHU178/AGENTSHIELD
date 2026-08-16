@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Clock,
   Layers,
+  UserCheck,
 } from 'lucide-react';
 import {
   fetchOperationsOverview,
@@ -16,6 +17,7 @@ import {
   fetchDecisions,
   fetchExecutions,
   fetchAuditEvents,
+  fetchApprovals,
 } from '../lib/api';
 import {
   OperationsOverview,
@@ -24,6 +26,7 @@ import {
   SecurityDecisionItem,
   ExecutionActivityItem,
   SecurityEvent,
+  ApprovalRequest,
 } from '../types';
 import { OverviewTab } from '../components/operations/OverviewTab';
 import { ThreatsTab } from '../components/operations/ThreatsTab';
@@ -31,6 +34,7 @@ import { DecisionsTab } from '../components/operations/DecisionsTab';
 import { ExecutionsTab } from '../components/operations/ExecutionsTab';
 import { AuditTab } from '../components/operations/AuditTab';
 import { DiagnosticsTab } from '../components/operations/DiagnosticsTab';
+import { ApprovalsTab } from '../components/operations/ApprovalsTab';
 
 export function Home() {
   const [activeTab, setActiveTab] = useState<string>('overview');
@@ -46,13 +50,14 @@ export function Home() {
   const [decisions, setDecisions] = useState<SecurityDecisionItem[]>([]);
   const [executions, setExecutions] = useState<ExecutionActivityItem[]>([]);
   const [auditEvents, setAuditEvents] = useState<SecurityEvent[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
   const loadAllData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Fetch unified overview and health
-      const [overviewData, healthData, threatsData, decisionsData, executionsData, auditData] =
+      // 1. Fetch unified overview, health, and operational streams
+      const [overviewData, healthData, threatsData, decisionsData, executionsData, auditData, approvalsData] =
         await Promise.all([
           fetchOperationsOverview().catch(() => null),
           fetchSystemHealth().catch(() => null),
@@ -60,6 +65,7 @@ export function Home() {
           fetchDecisions(100).catch(() => []),
           fetchExecutions(100).catch(() => []),
           fetchAuditEvents(100).catch(() => []),
+          fetchApprovals().catch(() => []),
         ]);
 
       if (overviewData) setOverview(overviewData);
@@ -68,6 +74,7 @@ export function Home() {
       setDecisions(decisionsData);
       setExecutions(executionsData);
       setAuditEvents(auditData);
+      setApprovals(approvalsData);
       setLastRefreshed(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Backend connection error');
@@ -179,6 +186,13 @@ export function Home() {
             count={overview?.metrics.total_requests || decisions.length}
           />
           <TabButton
+            active={activeTab === 'approvals'}
+            onClick={() => setActiveTab('approvals')}
+            icon={<UserCheck className="w-4 h-4" />}
+            label="Approvals"
+            count={approvals.filter((a) => a.status === 'PENDING').length}
+          />
+          <TabButton
             active={activeTab === 'executions'}
             onClick={() => setActiveTab('executions')}
             icon={<Terminal className="w-4 h-4" />}
@@ -226,6 +240,9 @@ export function Home() {
         )}
         {activeTab === 'threats' && <ThreatsTab threats={threats} />}
         {activeTab === 'decisions' && <DecisionsTab decisions={decisions} />}
+        {activeTab === 'approvals' && (
+          <ApprovalsTab approvals={approvals} onRefresh={loadAllData} />
+        )}
         {activeTab === 'executions' && <ExecutionsTab executions={executions} />}
         {activeTab === 'audit' && <AuditTab events={auditEvents} />}
         {activeTab === 'diagnostics' && (
@@ -236,7 +253,7 @@ export function Home() {
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div>
-          AgentShield Security Operations Console &bull; Phase 10 Observer Standard
+          AgentShield Security Operations Console &bull; Phase 11 Verified
         </div>
         <div className="font-mono text-[11px] text-slate-600">
           Last Synced: {lastRefreshed.toLocaleTimeString()}

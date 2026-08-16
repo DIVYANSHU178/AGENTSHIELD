@@ -105,3 +105,90 @@ export async function fetchAuditEvents(
   }
   return await response.json();
 }
+
+// Phase 11 Approval Workflow API Endpoints
+export async function fetchApprovals(
+  status?: string,
+  limit: number = 50
+): Promise<import('../types').ApprovalRequest[]> {
+  const params = new URLSearchParams({ limit: limit.toString() });
+  if (status) params.append('status', status);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/security/approvals?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch approvals: ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function fetchApproval(approvalId: string): Promise<import('../types').ApprovalRequest> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/security/approvals/${approvalId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch approval details: ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function approveApproval(
+  approvalId: string,
+  reviewerId: string,
+  reviewerName: string,
+  role: string,
+  reason: string
+): Promise<import('../types').ApprovalRequest> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/security/approvals/${approvalId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      reviewer_id: reviewerId,
+      reviewer_name: reviewerName,
+      role: role,
+      reason: reason,
+    }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errorData.detail || `Failed to approve request: ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function rejectApproval(
+  approvalId: string,
+  reviewerId: string,
+  reviewerName: string,
+  role: string,
+  reason: string
+): Promise<import('../types').ApprovalRequest> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/security/approvals/${approvalId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      reviewer_id: reviewerId,
+      reviewer_name: reviewerName,
+      role: role,
+      reason: reason,
+    }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errorData.detail || `Failed to reject request: ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function cancelApproval(
+  approvalId: string,
+  reason: string = 'Cancelled by requester'
+): Promise<import('../types').ApprovalRequest> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/security/approvals/${approvalId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errorData.detail || `Failed to cancel request: ${response.statusText}`);
+  }
+  return await response.json();
+}
