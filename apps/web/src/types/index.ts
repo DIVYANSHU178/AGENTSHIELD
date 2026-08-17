@@ -290,3 +290,47 @@ export interface ApprovalRequest {
   resolution?: ApprovalResolution | null;
   metadata?: Record<string, unknown>;
 }
+
+// Phase 12 Scenario / Attack Laboratory Interfaces
+export enum ScenarioCategory {
+  BASELINE = 'BASELINE',
+  APPROVAL_LIFECYCLE = 'APPROVAL_LIFECYCLE',
+  ANTI_TAMPER = 'ANTI_TAMPER',
+  FAILURE_ABUSE = 'FAILURE_ABUSE',
+}
+
+export interface ScenarioDefinition {
+  scenario_id: string;
+  name: string;
+  description: string;
+  category: ScenarioCategory;
+  expected_decision: SecurityDecisionType;
+  expected_status: string;
+  expected_executed: boolean;
+  requires_approval: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ScenarioRunRequest {
+  scenario_id: string;
+  request_id?: string | null;
+}
+
+export interface ScenarioResult {
+  scenario_id: string;
+  scenario_name: string;
+  category: ScenarioCategory;
+  request_id: string;
+  expected_decision: SecurityDecisionType;
+  actual_decision: SecurityDecisionType;
+  expected_status: string;
+  actual_status: string;
+  expected_executed: boolean;
+  actual_executed: boolean;
+  expected_approval_status?: ApprovalStatus | null;
+  actual_approval_status?: ApprovalStatus | null;
+  approval_id?: string | null;
+  passed: boolean;
+  message: string;
+  metadata?: Record<string, unknown>;
+}

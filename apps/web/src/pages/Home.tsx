@@ -9,6 +9,7 @@ import {
   Clock,
   Layers,
   UserCheck,
+  FlaskConical,
 } from 'lucide-react';
 import {
   fetchOperationsOverview,
@@ -35,6 +36,8 @@ import { ExecutionsTab } from '../components/operations/ExecutionsTab';
 import { AuditTab } from '../components/operations/AuditTab';
 import { DiagnosticsTab } from '../components/operations/DiagnosticsTab';
 import { ApprovalsTab } from '../components/operations/ApprovalsTab';
+import { ScenarioLabTab } from '../components/operations/ScenarioLabTab';
+
 
 export function Home() {
   const [activeTab, setActiveTab] = useState<string>('overview');
@@ -213,6 +216,13 @@ export function Home() {
             label="Diagnostics"
             count={overview?.overall_health.components.length || 7}
           />
+          <TabButton
+            active={activeTab === 'laboratory'}
+            onClick={() => setActiveTab('laboratory')}
+            icon={<FlaskConical className="w-4 h-4" />}
+            label="Scenario Lab"
+            count={20}
+          />
         </div>
       </nav>
 
@@ -248,13 +258,15 @@ export function Home() {
         {activeTab === 'diagnostics' && (
           <DiagnosticsTab health={health} onRefresh={loadAllData} loading={loading} />
         )}
+        {activeTab === 'laboratory' && <ScenarioLabTab />}
       </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div>
-          AgentShield Security Operations Console &bull; Phase 11 Verified
+          AgentShield Security Operations Console &bull; Phase 12 Laboratory Integrated
         </div>
+
         <div className="font-mono text-[11px] text-slate-600">
           Last Synced: {lastRefreshed.toLocaleTimeString()}
         </div>

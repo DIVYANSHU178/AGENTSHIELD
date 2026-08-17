@@ -110,4 +110,37 @@ describe('Phase 1 TypeScript Contracts', () => {
     expect(approval.risk_score).toBe(55.0);
     expect(reviewer.reviewer_id).toBe('rev-01');
   });
+
+  it('instantiates valid Phase 12 ScenarioDefinition and ScenarioResult structures', () => {
+    const defn = {
+      scenario_id: 'ALLOW_CLEAN',
+      name: 'Clean Arithmetic Computation',
+      description: 'Harmless arithmetic addition tool request.',
+      category: 'BASELINE' as const,
+      expected_decision: 'ALLOW' as const,
+      expected_status: 'COMPLETED',
+      expected_executed: true,
+      requires_approval: false,
+    };
+
+    const result = {
+      scenario_id: 'ALLOW_CLEAN',
+      scenario_name: 'Clean Arithmetic Computation',
+      category: 'BASELINE' as const,
+      request_id: 'req-01',
+      expected_decision: 'ALLOW' as const,
+      actual_decision: 'ALLOW' as const,
+      expected_status: 'COMPLETED',
+      actual_status: 'COMPLETED',
+      expected_executed: true,
+      actual_executed: true,
+      passed: true,
+      message: 'Verified successfully.',
+    };
+
+    expect(defn.scenario_id).toBe('ALLOW_CLEAN');
+    expect(defn.category).toBe('BASELINE');
+    expect(result.passed).toBe(true);
+    expect(result.actual_decision).toBe('ALLOW');
+  });
 });
