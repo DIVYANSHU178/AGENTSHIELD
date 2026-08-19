@@ -143,4 +143,15 @@ describe('Phase 1 TypeScript Contracts', () => {
     expect(result.passed).toBe(true);
     expect(result.actual_decision).toBe('ALLOW');
   });
+
+  it('validates ConnectionStatus types', () => {
+    const statuses: Array<'CONNECTING' | 'HEALTHY' | 'DISCONNECTED'> = [
+      'CONNECTING',
+      'HEALTHY',
+      'DISCONNECTED',
+    ];
+    expect(statuses).toContain('CONNECTING');
+    expect(statuses).toContain('HEALTHY');
+    expect(statuses).toContain('DISCONNECTED');
+  });
 });

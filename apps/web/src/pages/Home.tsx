@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Shield,
   ShieldAlert,
@@ -28,6 +28,7 @@ import {
   ExecutionActivityItem,
   SecurityEvent,
   ApprovalRequest,
+  ConnectionStatus,
 } from '../types';
 import { OverviewTab } from '../components/operations/OverviewTab';
 import { ThreatsTab } from '../components/operations/ThreatsTab';
@@ -41,10 +42,12 @@ import { ScenarioLabTab } from '../components/operations/ScenarioLabTab';
 
 export function Home() {
   const [activeTab, setActiveTab] = useState<string>('overview');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('CONNECTING');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+  const isPollingRef = useRef<boolean>(false);
 
   // Operations Data States
   const [overview, setOverview] = useState<OperationsOverview | null>(null);
@@ -56,33 +59,54 @@ export function Home() {
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
 
   const loadAllData = useCallback(async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     setLoading(true);
-    setError(null);
+
     try {
       // 1. Fetch unified overview, health, and operational streams
-      const [overviewData, healthData, threatsData, decisionsData, executionsData, auditData, approvalsData] =
-        await Promise.all([
-          fetchOperationsOverview().catch(() => null),
-          fetchSystemHealth().catch(() => null),
-          fetchThreats(100).catch(() => []),
-          fetchDecisions(100).catch(() => []),
-          fetchExecutions(100).catch(() => []),
-          fetchAuditEvents(100).catch(() => []),
-          fetchApprovals().catch(() => []),
-        ]);
+      const [
+        overviewData,
+        healthData,
+        threatsData,
+        decisionsData,
+        executionsData,
+        auditData,
+        approvalsData,
+      ] = await Promise.all([
+        fetchOperationsOverview().catch(() => null),
+        fetchSystemHealth().catch(() => null),
+        fetchThreats(100).catch(() => null),
+        fetchDecisions(100).catch(() => null),
+        fetchExecutions(100).catch(() => null),
+        fetchAuditEvents(100).catch(() => null),
+        fetchApprovals().catch(() => null),
+      ]);
 
-      if (overviewData) setOverview(overviewData);
-      if (healthData) setHealth(healthData);
-      setThreats(threatsData);
-      setDecisions(decisionsData);
-      setExecutions(executionsData);
-      setAuditEvents(auditData);
-      setApprovals(approvalsData);
-      setLastRefreshed(new Date());
+      // Success definition: The critical backend request(s), especially overview or health, respond successfully.
+      if (overviewData !== null && healthData !== null) {
+        if (overviewData) setOverview(overviewData);
+        if (healthData) setHealth(healthData);
+        if (threatsData !== null) setThreats(threatsData);
+        if (decisionsData !== null) setDecisions(decisionsData);
+        if (executionsData !== null) setExecutions(executionsData);
+        if (auditData !== null) setAuditEvents(auditData);
+        if (approvalsData !== null) setApprovals(approvalsData);
+
+        setConnectionStatus('HEALTHY');
+        setLastRefreshed(new Date());
+        setError(null);
+      } else {
+        // Backend unavailable: preserve previous metrics and data
+        setConnectionStatus('DISCONNECTED');
+        setError('Backend connection lost. Retrying automatically...');
+      }
     } catch (err) {
+      setConnectionStatus('DISCONNECTED');
       setError(err instanceof Error ? err.message : 'Backend connection error');
     } finally {
       setLoading(false);
+      isPollingRef.current = false;
     }
   }, []);
 
@@ -122,22 +146,24 @@ export function Home() {
         <div className="flex items-center gap-3">
           {/* Status Badge */}
           <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold border ${
-              overview?.overall_health.status === 'HEALTHY'
+            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold border transition ${
+              connectionStatus === 'HEALTHY'
                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                : overview?.overall_health.status === 'DEGRADED'
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : connectionStatus === 'CONNECTING'
+                ? 'bg-slate-500/10 text-slate-400 border-slate-500/20'
                 : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
             }`}
           >
             <span
               className={`w-2 h-2 rounded-full ${
-                overview?.overall_health.status === 'HEALTHY'
+                connectionStatus === 'HEALTHY'
                   ? 'bg-emerald-400 animate-pulse'
-                  : 'bg-amber-400'
+                  : connectionStatus === 'CONNECTING'
+                  ? 'bg-slate-400 animate-pulse'
+                  : 'bg-rose-400'
               }`}
             />
-            {overview?.overall_health.status || 'CONNECTING'}
+            {connectionStatus}
           </span>
 
           {/* Auto Refresh Toggle */}
@@ -228,21 +254,23 @@ export function Home() {
 
       {/* Main Console Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 md:p-8 space-y-6">
-        {/* Error Alert Banner */}
+        {/* Disconnected / Stale Data or Error Alert Banner */}
         {error && (
-          <div className="p-4 bg-rose-950/30 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex items-center justify-between gap-4">
+          <div className="p-3.5 bg-rose-950/30 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-rose-400 flex-shrink-0" />
               <span>{error}</span>
             </div>
             <button
               onClick={loadAllData}
-              className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded border border-rose-500/30 text-xs font-semibold"
+              disabled={loading}
+              className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded border border-rose-500/30 text-xs font-semibold transition disabled:opacity-50"
             >
               Retry
             </button>
           </div>
         )}
+
 
         {/* Tab Views */}
         {activeTab === 'overview' && (

@@ -77,6 +77,7 @@ export type RuntimeExecutionStatus =
   | 'DENIED';
 
 export type ComponentStatus = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
+export type ConnectionStatus = 'CONNECTING' | 'HEALTHY' | 'DISCONNECTED';
 
 // Phase 1 Security Domain Interfaces
 export interface AgentIdentity {

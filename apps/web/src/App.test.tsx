@@ -352,4 +352,62 @@ describe('Security Operations Console (Phase 10)', () => {
       expect(screen.getByText(/Clean calculation evaluated to ALLOW/i)).toBeInTheDocument();
     });
   });
+
+  it('handles backend disconnection gracefully: retains data, shows DISCONNECTED badge, and recovers on reconnect', async () => {
+    render(<App />);
+
+    // 1. Initial healthy state
+    await waitFor(() => {
+      expect(screen.getByText('HEALTHY')).toBeInTheDocument();
+      expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
+    });
+
+    // 2. Backend goes down (all fetch calls fail)
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error: connection refused'));
+
+    // Trigger manual refresh while backend is down
+    const refreshBtn = screen.getByTitle('Refresh now');
+    fireEvent.click(refreshBtn);
+
+    // 3. Status changes to DISCONNECTED, warning banner is shown, but data is PRESERVED
+    await waitFor(() => {
+      expect(screen.getByText('DISCONNECTED')).toBeInTheDocument();
+      expect(screen.getByText(/Backend connection lost\. Retrying automatically\.\.\./i)).toBeInTheDocument();
+    });
+
+    // Verify last-known metrics remain visible and NOT cleared to 0
+    expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
+    expect(screen.getByText('Allowed Requests')).toBeInTheDocument();
+    expect(screen.getByText('Blocked Requests')).toBeInTheDocument();
+
+    // 4. Backend recovers
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/overview')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockOverview),
+        });
+      }
+      if (url.includes('/health')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockOverview.overall_health),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    // Click retry in the disconnected banner
+    const retryBtn = screen.getByRole('button', { name: /^retry$/i });
+    fireEvent.click(retryBtn);
+
+    // 5. Status returns to HEALTHY, warning banner disappears
+    await waitFor(() => {
+      expect(screen.getByText('HEALTHY')).toBeInTheDocument();
+      expect(screen.queryByText(/Backend connection lost/i)).not.toBeInTheDocument();
+    });
+  });
 });
