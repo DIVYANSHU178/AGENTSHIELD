@@ -192,3 +192,36 @@ export async function cancelApproval(
   }
   return await response.json();
 }
+
+// Phase 12 Scenario / Attack Laboratory API Endpoints
+export async function fetchLaboratoryScenarios(
+  category?: string
+): Promise<import('../types').ScenarioDefinition[]> {
+  const params = new URLSearchParams();
+  if (category) params.append('category', category);
+
+  const response = await fetch(`${API_BASE_URL}/api/v1/dev/laboratory/scenarios?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch laboratory scenarios: ${response.statusText}`);
+  }
+  return await response.json();
+}
+
+export async function runLaboratoryScenario(
+  scenarioId: string,
+  requestId?: string | null
+): Promise<import('../types').ScenarioResult> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/dev/laboratory/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scenario_id: scenarioId,
+      request_id: requestId || undefined,
+    }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errorData.detail || `Failed to execute scenario: ${response.statusText}`);
+  }
+  return await response.json();
+}

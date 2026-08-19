@@ -194,6 +194,55 @@ describe('Security Operations Console (Phase 10)', () => {
             ]),
         });
       }
+      if (url.includes('/laboratory/scenarios')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              {
+                scenario_id: 'ALLOW_CLEAN',
+                name: 'Clean Arithmetic Computation',
+                description: 'Harmless arithmetic addition tool request.',
+                category: 'BASELINE',
+                expected_decision: 'ALLOW',
+                expected_status: 'COMPLETED',
+                expected_executed: true,
+                requires_approval: false,
+              },
+              {
+                scenario_id: 'REQUIRE_APPROVAL_PROMPT_INJECTION',
+                name: 'Prompt Injection Instruction Override',
+                description: 'Agent request containing instruction override.',
+                category: 'BASELINE',
+                expected_decision: 'REQUIRE_APPROVAL',
+                expected_status: 'DENIED',
+                expected_executed: false,
+                requires_approval: true,
+              },
+            ]),
+        });
+      }
+      if (url.includes('/laboratory/run')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              scenario_id: 'ALLOW_CLEAN',
+              scenario_name: 'Clean Arithmetic Computation',
+              category: 'BASELINE',
+              request_id: 'req-lab-01',
+              expected_decision: 'ALLOW',
+              actual_decision: 'ALLOW',
+              expected_status: 'COMPLETED',
+              actual_status: 'COMPLETED',
+              expected_executed: true,
+              actual_executed: true,
+              passed: true,
+              message: 'Clean calculation evaluated to ALLOW and executed successfully in Sandbox.',
+              metadata: { result: { result: 30.0 } },
+            }),
+        });
+      }
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ status: 'ok', service: 'agentshield' }),
@@ -204,7 +253,7 @@ describe('Security Operations Console (Phase 10)', () => {
   it('renders Operations Console header and overview metrics', async () => {
     render(<App />);
     expect(screen.getByText('AgentShield')).toBeInTheDocument();
-    expect(screen.getByText('Phase 10 Operations Console')).toBeInTheDocument();
+    expect(screen.getByText(/Phase 10 Operations Console/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
@@ -276,6 +325,89 @@ describe('Security Operations Console (Phase 10)', () => {
       expect(screen.getByText('SecurityEnforcementBoundary')).toBeInTheDocument();
       expect(screen.getByText('ToolExecutionRegistry')).toBeInTheDocument();
       expect(screen.getByText(/Diagnostic checks/i)).toBeInTheDocument();
+    });
+  });
+
+  it('switches to Scenario Lab tab, loads catalog, and executes scenario', async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByText('Scenario Lab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Scenario Lab'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Scenario & Attack Laboratory')).toBeInTheDocument();
+      expect(screen.getAllByText('Clean Arithmetic Computation').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('ALLOW_CLEAN').length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Run scenario
+    const runButtons = screen.getAllByRole('button', { name: /^run$/i });
+    expect(runButtons.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(runButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByText(/VERIFIED PASS/i)).toBeInTheDocument();
+      expect(screen.getByText(/Clean calculation evaluated to ALLOW/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles backend disconnection gracefully: retains data, shows DISCONNECTED badge, and recovers on reconnect', async () => {
+    render(<App />);
+
+    // 1. Initial healthy state
+    await waitFor(() => {
+      expect(screen.getByText('HEALTHY')).toBeInTheDocument();
+      expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
+    });
+
+    // 2. Backend goes down (all fetch calls fail)
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error: connection refused'));
+
+    // Trigger manual refresh while backend is down
+    const refreshBtn = screen.getByTitle('Refresh now');
+    fireEvent.click(refreshBtn);
+
+    // 3. Status changes to DISCONNECTED, warning banner is shown, but data is PRESERVED
+    await waitFor(() => {
+      expect(screen.getByText('DISCONNECTED')).toBeInTheDocument();
+      expect(screen.getByText(/Backend connection lost\. Retrying automatically\.\.\./i)).toBeInTheDocument();
+    });
+
+    // Verify last-known metrics remain visible and NOT cleared to 0
+    expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
+    expect(screen.getByText('Allowed Requests')).toBeInTheDocument();
+    expect(screen.getByText('Blocked Requests')).toBeInTheDocument();
+
+    // 4. Backend recovers
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/overview')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockOverview),
+        });
+      }
+      if (url.includes('/health')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockOverview.overall_health),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    // Click retry in the disconnected banner
+    const retryBtn = screen.getByRole('button', { name: /^retry$/i });
+    fireEvent.click(retryBtn);
+
+    // 5. Status returns to HEALTHY, warning banner disappears
+    await waitFor(() => {
+      expect(screen.getByText('HEALTHY')).toBeInTheDocument();
+      expect(screen.queryByText(/Backend connection lost/i)).not.toBeInTheDocument();
     });
   });
 });

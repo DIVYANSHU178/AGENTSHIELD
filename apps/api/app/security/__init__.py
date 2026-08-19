@@ -146,6 +146,21 @@ from app.security.approval import (
     set_approval_service,
     approval_router,
 )
+from app.security.laboratory import (
+    ScenarioCategory,
+    ScenarioDefinition,
+    ScenarioRunRequest,
+    ScenarioResult,
+    ScenarioLaboratoryError,
+    UnknownScenarioError,
+    ScenarioExecutionError,
+    ScenarioValidationError,
+    ScenarioRegistry,
+    create_default_scenario_registry,
+    get_scenario_registry,
+    ScenarioRunner,
+    laboratory_router,
+)
 
 __all__ = [
     "ToolCategory",
@@ -272,4 +287,17 @@ __all__ = [
     "get_approval_service",
     "set_approval_service",
     "approval_router",
+    "ScenarioCategory",
+    "ScenarioDefinition",
+    "ScenarioRunRequest",
+    "ScenarioResult",
+    "ScenarioLaboratoryError",
+    "UnknownScenarioError",
+    "ScenarioExecutionError",
+    "ScenarioValidationError",
+    "ScenarioRegistry",
+    "create_default_scenario_registry",
+    "get_scenario_registry",
+    "ScenarioRunner",
+    "laboratory_router",
 ]
