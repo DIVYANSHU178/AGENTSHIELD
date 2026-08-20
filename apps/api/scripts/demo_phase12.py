@@ -4,6 +4,7 @@ import sys
 # Ensure app package is importable
 sys.path.insert(0, os.path.abspath("."))
 
+import uuid
 from app.security.laboratory.runner import ScenarioRunner
 from app.security.laboratory.registry import create_default_scenario_registry
 
@@ -37,6 +38,7 @@ def main() -> int:
 
     registry = create_default_scenario_registry()
     runner = ScenarioRunner(registry=registry)
+    run_id = uuid.uuid4().hex[:6]
 
     failed_count = 0
 
@@ -47,7 +49,7 @@ def main() -> int:
         print(f"  Category    : {defn.category.value}")
         print(f"  Expected    : Decision={defn.expected_decision.value}, Status={defn.expected_status.value}, Executed={defn.expected_executed}")
 
-        res = runner.run(sid, request_id=f"demo12-{sid.lower()[:8]}")
+        res = runner.run(sid, request_id=f"demo12-{run_id}-{idx:02d}-{sid.lower()}")
 
         status_tag = "[PASS]" if res.passed else "[FAIL]"
         print(f"  Outcome     : {status_tag} Actual Decision={res.actual_decision.value}, Status={res.actual_status.value}, Executed={res.actual_executed}")

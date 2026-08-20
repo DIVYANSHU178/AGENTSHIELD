@@ -161,6 +161,14 @@ from app.security.laboratory import (
     ScenarioRunner,
     laboratory_router,
 )
+from app.security.persistence import (
+    AuditRepository,
+    DecisionRepository,
+    ThreatRepository,
+    ExecutionRepository,
+    ApprovalRepository,
+)
+
 
 __all__ = [
     "ToolCategory",
@@ -300,4 +308,9 @@ __all__ = [
     "get_scenario_registry",
     "ScenarioRunner",
     "laboratory_router",
+    "AuditRepository",
+    "DecisionRepository",
+    "ThreatRepository",
+    "ExecutionRepository",
+    "ApprovalRepository",
 ]

@@ -31,9 +31,10 @@ from app.security.approval.errors import (
 from app.security.audit.trail import SecurityAuditTrail
 from app.security.audit.redaction import sanitize_audit_payload, sanitize_string_value
 
+
 class ApprovalService:
     """
-    Authoritative, deterministic in-memory Approval Workflow service for AgentShield (Roadmap Phase 11).
+    Authoritative, deterministic Approval Workflow service for AgentShield (Roadmap Phase 11/13).
     
     PRIMARY ARCHITECTURAL PRINCIPLE:
         APPROVAL IS NOT AUTHORIZATION.
@@ -44,15 +45,18 @@ class ApprovalService:
     - Resolving an approval never directly invokes tools or manufactures ExecutionAuthorization.
     - Transitions strictly follow the non-resurrectable lifecycle state machine.
     - Thread-safe, deeply immutable defensive copies are returned.
+    - Supports durable persistence via ApprovalRepository while supporting pure in-memory fallback.
     """
 
     def __init__(
         self,
         policy: Optional[ApprovalPolicy] = None,
         audit_trail: Optional[SecurityAuditTrail] = None,
+        repository: Optional[Any] = None,
     ) -> None:
         self._policy_engine = ApprovalPolicyEngine(policy=policy)
         self._audit_trail = audit_trail
+        self._repository = repository
         self._approvals: Dict[str, ApprovalRequest] = {}
         self._request_to_approval: Dict[str, str] = {}
 
@@ -63,6 +67,10 @@ class ApprovalService:
     @property
     def audit_trail(self) -> Optional[SecurityAuditTrail]:
         return self._audit_trail
+
+    @property
+    def repository(self) -> Optional[Any]:
+        return self._repository
 
     def create_approval(
         self,
@@ -105,22 +113,55 @@ class ApprovalService:
             metadata=copy.deepcopy(metadata or {}),
         )
 
-        self._approvals[approval.approval_id] = approval
-        self._request_to_approval[approval.request_id] = approval.approval_id
+        if self._repository is not None:
+            existing = self._repository.get_by_request_id(req.request_id)
+            if existing is not None:
+                return copy.deepcopy(existing)
+            self._repository.save(approval)
+        else:
+            if req.request_id in self._request_to_approval:
+                return copy.deepcopy(self._approvals[self._request_to_approval[req.request_id]])
+            self._approvals[approval.approval_id] = approval
+            self._request_to_approval[approval.request_id] = approval.approval_id
 
         return copy.deepcopy(approval)
 
     def get_approval(self, approval_id: str) -> ApprovalRequest:
         """Retrieve an approval request by ID, evaluating expiration dynamically."""
-        if not approval_id or approval_id not in self._approvals:
+        if not approval_id or not isinstance(approval_id, str) or not approval_id.strip():
             raise ApprovalNotFoundError(f"Approval request with ID '{approval_id}' not found.")
 
-        approval = self._approvals[approval_id]
+        app_id_clean = approval_id.strip()
+
+        if self._repository is not None:
+            approval = self._repository.get_by_id(app_id_clean)
+            if approval is None:
+                raise ApprovalNotFoundError(f"Approval request with ID '{approval_id}' not found.")
+
+            if approval.status == ApprovalStatus.PENDING and approval.is_expired():
+                expired_approval = self._repository.update_status(app_id_clean, ApprovalStatus.EXPIRED)
+                self._record_audit_event(
+                    event_type=EventType.APPROVAL_EXPIRED,
+                    request_id=approval.request_id,
+                    details={
+                        "approval_id": approval.approval_id,
+                        "reason": "Approval request TTL expired prior to review",
+                        "expires_at": approval.expires_at.isoformat(),
+                    },
+                )
+                return copy.deepcopy(expired_approval)
+
+            return copy.deepcopy(approval)
+
+        if app_id_clean not in self._approvals:
+            raise ApprovalNotFoundError(f"Approval request with ID '{approval_id}' not found.")
+
+        approval = self._approvals[app_id_clean]
 
         # Dynamic expiration check for PENDING items
         if approval.status == ApprovalStatus.PENDING and approval.is_expired():
             expired_approval = approval.model_copy(update={"status": ApprovalStatus.EXPIRED})
-            self._approvals[approval_id] = expired_approval
+            self._approvals[app_id_clean] = expired_approval
             self._record_audit_event(
                 event_type=EventType.APPROVAL_EXPIRED,
                 request_id=approval.request_id,
@@ -136,9 +177,20 @@ class ApprovalService:
 
     def get_approval_by_request_id(self, request_id: str) -> Optional[ApprovalRequest]:
         """Look up approval request bound to a specific request ID."""
-        if not request_id or request_id not in self._request_to_approval:
+        if not request_id or not request_id.strip():
             return None
-        return self.get_approval(self._request_to_approval[request_id])
+
+        req_id_clean = request_id.strip()
+
+        if self._repository is not None:
+            app = self._repository.get_by_request_id(req_id_clean)
+            if app is None:
+                return None
+            return self.get_approval(app.approval_id)
+
+        if req_id_clean not in self._request_to_approval:
+            return None
+        return self.get_approval(self._request_to_approval[req_id_clean])
 
     def list_approvals(
         self,
@@ -146,6 +198,16 @@ class ApprovalService:
         limit: int = 50,
     ) -> List[ApprovalRequest]:
         """List recent approval requests, applying auto-expiration to pending items."""
+        if self._repository is not None:
+            raw_list = self._repository.list_approvals(status=None, limit=limit)
+            result: List[ApprovalRequest] = []
+            for app in raw_list:
+                # Trigger dynamic expiration check
+                fresh = self.get_approval(app.approval_id)
+                if status is None or fresh.status == status:
+                    result.append(fresh)
+            return result[:limit]
+
         result: List[ApprovalRequest] = []
         for app_id in list(self._approvals.keys()):
             app = self.get_approval(app_id)
@@ -188,14 +250,18 @@ class ApprovalService:
             metadata=copy.deepcopy(metadata or {}),
         )
 
-        resolved_approval = approval.model_copy(
-            update={
-                "status": ApprovalStatus.APPROVED,
-                "resolution": resolution,
-            }
-        )
-
-        self._approvals[approval_id] = resolved_approval
+        if self._repository is not None:
+            resolved_approval = self._repository.update_status(
+                approval.approval_id, ApprovalStatus.APPROVED, resolution=resolution
+            )
+        else:
+            resolved_approval = approval.model_copy(
+                update={
+                    "status": ApprovalStatus.APPROVED,
+                    "resolution": resolution,
+                }
+            )
+            self._approvals[approval.approval_id] = resolved_approval
 
         self._record_audit_event(
             event_type=EventType.APPROVAL_APPROVED,
@@ -243,14 +309,18 @@ class ApprovalService:
             metadata=copy.deepcopy(metadata or {}),
         )
 
-        resolved_approval = approval.model_copy(
-            update={
-                "status": ApprovalStatus.REJECTED,
-                "resolution": resolution,
-            }
-        )
-
-        self._approvals[approval_id] = resolved_approval
+        if self._repository is not None:
+            resolved_approval = self._repository.update_status(
+                approval.approval_id, ApprovalStatus.REJECTED, resolution=resolution
+            )
+        else:
+            resolved_approval = approval.model_copy(
+                update={
+                    "status": ApprovalStatus.REJECTED,
+                    "resolution": resolution,
+                }
+            )
+            self._approvals[approval.approval_id] = resolved_approval
 
         self._record_audit_event(
             event_type=EventType.APPROVAL_REJECTED,
@@ -272,8 +342,11 @@ class ApprovalService:
         approval = self.get_approval(approval_id)
         validate_state_transition(approval.status, ApprovalStatus.CANCELLED)
 
-        cancelled_approval = approval.model_copy(update={"status": ApprovalStatus.CANCELLED})
-        self._approvals[approval_id] = cancelled_approval
+        if self._repository is not None:
+            cancelled_approval = self._repository.update_status(approval.approval_id, ApprovalStatus.CANCELLED)
+        else:
+            cancelled_approval = approval.model_copy(update={"status": ApprovalStatus.CANCELLED})
+            self._approvals[approval.approval_id] = cancelled_approval
 
         self._record_audit_event(
             event_type=EventType.APPROVAL_CANCELLED,
@@ -291,8 +364,11 @@ class ApprovalService:
         approval = self.get_approval(approval_id)
         validate_state_transition(approval.status, ApprovalStatus.EXPIRED)
 
-        expired_approval = approval.model_copy(update={"status": ApprovalStatus.EXPIRED})
-        self._approvals[approval_id] = expired_approval
+        if self._repository is not None:
+            expired_approval = self._repository.update_status(approval.approval_id, ApprovalStatus.EXPIRED)
+        else:
+            expired_approval = approval.model_copy(update={"status": ApprovalStatus.EXPIRED})
+            self._approvals[approval.approval_id] = expired_approval
 
         self._record_audit_event(
             event_type=EventType.APPROVAL_EXPIRED,
@@ -380,6 +456,13 @@ class ApprovalService:
 
         return True
 
+    def clear(self) -> None:
+        """Clear stored approval records (for test isolation only)."""
+        if self._repository is not None:
+            self._repository.clear()
+        self._approvals.clear()
+        self._request_to_approval.clear()
+
     def _record_audit_event(
         self,
         event_type: EventType,
@@ -409,9 +492,15 @@ _GLOBAL_APPROVAL_SERVICE: Optional[ApprovalService] = None
 def get_approval_service() -> ApprovalService:
     global _GLOBAL_APPROVAL_SERVICE
     if _GLOBAL_APPROVAL_SERVICE is None:
-        _GLOBAL_APPROVAL_SERVICE = ApprovalService()
+        from app.security.persistence.approval_repository import ApprovalRepository
+        from app.security.operations.service import get_operations_service
+        ops = get_operations_service()
+        _GLOBAL_APPROVAL_SERVICE = ApprovalService(
+            repository=ApprovalRepository(),
+            audit_trail=ops.audit_trail,
+        )
     return _GLOBAL_APPROVAL_SERVICE
 
-def set_approval_service(service: ApprovalService) -> None:
+def set_approval_service(service: Optional[ApprovalService]) -> None:
     global _GLOBAL_APPROVAL_SERVICE
     _GLOBAL_APPROVAL_SERVICE = service

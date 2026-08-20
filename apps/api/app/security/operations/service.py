@@ -30,6 +30,11 @@ from app.security.operations.contracts import (
 )
 from app.security.operations.health import SecurityHealthChecker
 from app.security.models.utils import utc_now, generate_uuid
+from app.security.persistence.audit_repository import AuditRepository
+from app.security.persistence.decision_repository import DecisionRepository
+from app.security.persistence.threat_repository import ThreatRepository
+from app.security.persistence.execution_repository import ExecutionRepository
+
 
 FORBIDDEN_CONTROL_ACTIONS = {
     "APPROVE_REQUEST",
@@ -47,20 +52,27 @@ FORBIDDEN_CONTROL_ACTIONS = {
 
 class SecurityOperationsService:
     """
-    Authoritative service backing the Security Operations Console (Phase 10).
+    Authoritative service backing the Security Operations Console (Phase 10/13).
     
     CORE ROLES:
     - Observer and operational inspection interface for AgentShield pipeline state.
     - Collects and serves defensive snapshots of metrics, health, threats, decisions, executions, and audit records.
     - Enforces complete redaction of sensitive credentials, keys, and tokens.
     - Strictly read-only: Rejects all execution, approval, override, and bypass operational attempts.
+    - Supports durable persistence repositories for decisions, threats, executions, and audit trail.
     """
 
     def __init__(
         self,
         audit_trail: Optional[SecurityAuditTrail] = None,
         health_checker: Optional[SecurityHealthChecker] = None,
+        decision_repo: Optional[Any] = None,
+        threat_repo: Optional[Any] = None,
+        execution_repo: Optional[Any] = None,
     ) -> None:
+        self._decision_repo = decision_repo
+        self._threat_repo = threat_repo
+        self._execution_repo = execution_repo
         self._audit_trail = audit_trail if audit_trail is not None else SecurityAuditTrail()
         self._health_checker = health_checker or SecurityHealthChecker(audit_trail=self._audit_trail)
         self._threats: List[ThreatActivityItem] = []
@@ -76,6 +88,18 @@ class SecurityOperationsService:
     @property
     def health_checker(self) -> SecurityHealthChecker:
         return self._health_checker
+
+    @property
+    def decision_repo(self) -> Optional[Any]:
+        return self._decision_repo
+
+    @property
+    def threat_repo(self) -> Optional[Any]:
+        return self._threat_repo
+
+    @property
+    def execution_repo(self) -> Optional[Any]:
+        return self._execution_repo
 
     def record_evaluation(self, evaluation: SecurityEvaluationResult) -> None:
         """
@@ -104,7 +128,10 @@ class SecurityOperationsService:
                 timestamp=evaluation.evaluated_at,
                 metadata={**sanitized_meta, "evidence": sanitized_evidence},
             )
-            self._threats.append(item)
+            if self._threat_repo is not None:
+                self._threat_repo.save(item)
+            else:
+                self._threats.append(item)
 
         # 2. Record Security Decision
         dec = evaluation.decision
@@ -121,7 +148,10 @@ class SecurityOperationsService:
             timestamp=evaluation.evaluated_at,
             metadata=sanitized_dec_meta,
         )
-        self._decisions.append(dec_item)
+        if self._decision_repo is not None:
+            self._decision_repo.save(dec_item)
+        else:
+            self._decisions.append(dec_item)
 
     def record_runtime_execution(self, result: RuntimeExecutionResult) -> None:
         """
@@ -166,7 +196,10 @@ class SecurityOperationsService:
                 "executed": result.executed,
             },
         )
-        self._executions.append(exec_item)
+        if self._execution_repo is not None:
+            self._execution_repo.save(exec_item)
+        else:
+            self._executions.append(exec_item)
 
     def get_health(self) -> OverallSystemHealth:
         """Retrieve overall system health snapshot."""
@@ -174,6 +207,47 @@ class SecurityOperationsService:
 
     def get_metrics(self) -> SecurityMetrics:
         """Derive deterministic operational metrics from recorded state and audit trail."""
+        if self._decision_repo is not None and self._threat_repo is not None and self._execution_repo is not None:
+            total_requests = self._decision_repo.count()
+            allowed = self._decision_repo.count(decision=SecurityDecisionType.ALLOW)
+            require_approval = self._decision_repo.count(decision=SecurityDecisionType.REQUIRE_APPROVAL)
+            blocked = self._decision_repo.count(decision=SecurityDecisionType.BLOCK)
+
+            successful_exec = self._execution_repo.count(status=RuntimeExecutionStatus.COMPLETED, success=True)
+            failed_exec = self._execution_repo.count(status=RuntimeExecutionStatus.FAILED)
+            timed_out_exec = self._execution_repo.count(status=RuntimeExecutionStatus.TIMED_OUT)
+            denied_exec = self._execution_repo.count(status=RuntimeExecutionStatus.DENIED)
+
+            detected_threats_count = self._threat_repo.count()
+            critical_risk = self._decision_repo.count(severity=Severity.CRITICAL)
+            high_risk = self._decision_repo.count(severity=Severity.HIGH)
+            medium_risk = self._decision_repo.count(severity=Severity.MEDIUM)
+
+            audit_events_count = len(self._audit_trail)
+            runtime_requests = self._execution_repo.count()
+            runtime_failures = failed_exec
+            authorized_count = successful_exec + failed_exec + timed_out_exec
+
+            return SecurityMetrics(
+                total_requests=total_requests,
+                allowed=allowed,
+                require_approval=require_approval,
+                blocked=blocked,
+                authorized=authorized_count,
+                denied_execution=denied_exec,
+                successful_execution=successful_exec,
+                failed_execution=failed_exec,
+                timed_out_execution=timed_out_exec,
+                detected_threats=detected_threats_count,
+                critical_risk_requests=critical_risk,
+                high_risk_requests=high_risk,
+                medium_risk_requests=medium_risk,
+                audit_events=audit_events_count,
+                runtime_requests=runtime_requests,
+                runtime_failures=runtime_failures,
+                calculated_at=utc_now(),
+            )
+
         total_requests = len(self._decisions)
         allowed = sum(1 for d in self._decisions if d.decision == SecurityDecisionType.ALLOW)
         require_approval = sum(1 for d in self._decisions if d.decision == SecurityDecisionType.REQUIRE_APPROVAL)
@@ -220,6 +294,9 @@ class SecurityOperationsService:
         threat_type: Optional[ThreatType] = None,
     ) -> List[ThreatActivityItem]:
         """Retrieve recent threats, optionally filtered by severity or threat type."""
+        if self._threat_repo is not None:
+            return self._threat_repo.list_threats(severity=severity, threat_type=threat_type, limit=limit)
+
         threats = list(reversed(self._threats))
         if severity:
             threats = [t for t in threats if t.severity == severity]
@@ -233,6 +310,9 @@ class SecurityOperationsService:
         decision: Optional[SecurityDecisionType] = None,
     ) -> List[SecurityDecisionItem]:
         """Retrieve recent security decisions."""
+        if self._decision_repo is not None:
+            return self._decision_repo.list_decisions(decision=decision, limit=limit)
+
         decisions = list(reversed(self._decisions))
         if decision:
             decisions = [d for d in decisions if d.decision == decision]
@@ -244,6 +324,9 @@ class SecurityOperationsService:
         status: Optional[RuntimeExecutionStatus] = None,
     ) -> List[ExecutionActivityItem]:
         """Retrieve recent execution outcomes."""
+        if self._execution_repo is not None:
+            return self._execution_repo.list_executions(status=status, limit=limit)
+
         executions = list(reversed(self._executions))
         if status:
             executions = [e for e in executions if e.status == status]
@@ -352,7 +435,13 @@ class SecurityOperationsService:
             raise ValueError(f"Unsupported operational action '{action}'.")
 
     def clear(self) -> None:
-        """Reset internal in-memory operational buffers."""
+        """Reset internal operational buffers and persistent stores."""
+        if self._decision_repo is not None:
+            self._decision_repo.clear()
+        if self._threat_repo is not None:
+            self._threat_repo.clear()
+        if self._execution_repo is not None:
+            self._execution_repo.clear()
         self._threats.clear()
         self._decisions.clear()
         self._executions.clear()
@@ -364,10 +453,19 @@ class SecurityOperationsService:
 _global_operations_service: Optional[SecurityOperationsService] = None
 
 def get_operations_service() -> SecurityOperationsService:
-    """Retrieve or initialize the global SecurityOperationsService instance."""
+    """Retrieve or initialize the global persistent SecurityOperationsService instance."""
     global _global_operations_service
     if _global_operations_service is None:
-        _global_operations_service = SecurityOperationsService()
+        from app.database import init_db
+        init_db()
+        audit_repo = AuditRepository()
+        audit_trail = SecurityAuditTrail(repository=audit_repo)
+        _global_operations_service = SecurityOperationsService(
+            audit_trail=audit_trail,
+            decision_repo=DecisionRepository(),
+            threat_repo=ThreatRepository(),
+            execution_repo=ExecutionRepository(),
+        )
     return _global_operations_service
 
 def set_operations_service(service: Optional[SecurityOperationsService]) -> None:

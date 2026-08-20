@@ -1,5 +1,5 @@
 import copy
-from typing import List, Optional, Iterable, Tuple, Set
+from typing import List, Optional, Iterable, Tuple, Set, Any
 from app.security.models import SecurityEvent, EventType
 from app.security.audit.errors import InvalidSecurityEventError
 
@@ -25,8 +25,13 @@ class SecurityAuditTrail:
       event per logical security evaluation lifecycle.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, repository: Optional[Any] = None) -> None:
+        self._repository = repository
         self._events: List[SecurityEvent] = []
+
+    @property
+    def repository(self) -> Optional[Any]:
+        return self._repository
 
     def record(self, event: SecurityEvent) -> None:
         """
@@ -45,7 +50,10 @@ class SecurityAuditTrail:
         if not event.actor or not event.actor.strip():
             raise InvalidSecurityEventError("Cannot record SecurityEvent with empty actor.")
 
-        self._events.append(copy.deepcopy(event))
+        if self._repository is not None:
+            self._repository.save(event)
+        else:
+            self._events.append(copy.deepcopy(event))
 
     def record_all(self, events: Iterable[SecurityEvent]) -> None:
         """Record multiple SecurityEvents sequentially."""
@@ -60,6 +68,9 @@ class SecurityAuditTrail:
         Returns a defensive deepcopy list so that modifying the returned collection
         or any returned event instance does NOT alter internal audit trail storage.
         """
+        if self._repository is not None:
+            return self._repository.get_events(request_id=request_id)
+
         if request_id is not None:
             req_id_clean = request_id.strip()
             return [copy.deepcopy(e) for e in self._events if e.request_id == req_id_clean]
@@ -166,11 +177,17 @@ class SecurityAuditTrail:
 
     def count(self, request_id: Optional[str] = None) -> int:
         """Return count of recorded events."""
+        if self._repository is not None:
+            return self._repository.count(request_id=request_id)
         return len(self.get_events(request_id=request_id))
 
     def clear(self) -> None:
         """Clear recorded events from this audit trail instance."""
+        if self._repository is not None:
+            self._repository.clear()
         self._events.clear()
 
     def __len__(self) -> int:
+        if self._repository is not None:
+            return self._repository.count()
         return len(self._events)

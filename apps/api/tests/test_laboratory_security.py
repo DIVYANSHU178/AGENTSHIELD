@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from app.main import app
@@ -26,7 +27,7 @@ def test_laboratory_secret_redaction_in_api_response():
 
 def test_laboratory_audit_trail_events_generated():
     client = TestClient(app)
-    req_id = "lab-audit-verify-001"
+    req_id = f"lab-audit-verify-{uuid.uuid4().hex[:8]}"
     resp = client.post(
         "/api/v1/dev/laboratory/run",
         json={"scenario_id": "ALLOW_CLEAN", "request_id": req_id},

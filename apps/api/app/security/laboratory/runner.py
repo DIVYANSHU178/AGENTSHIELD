@@ -101,7 +101,7 @@ class ScenarioRunner:
         """
         definition = self._registry.get(scenario_id)
         sid = definition.scenario_id
-        req_id = request_id.strip() if request_id and isinstance(request_id, str) and request_id.strip() else f"lab-{sid.lower()[:12]}-{generate_uuid()[:8]}"
+        req_id = request_id.strip() if request_id and isinstance(request_id, str) and request_id.strip() else f"lab-{sid.lower()}-{generate_uuid()[:8]}"
 
         handler_map = {
             "ALLOW_CLEAN": self._run_allow_clean,

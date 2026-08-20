@@ -12,17 +12,19 @@ from app.security.operations.service import get_operations_service
 from app.security.approval.service import get_approval_service
 
 def test_dev_endpoint_allow_scenario():
+    from app.security.models.utils import generate_uuid
+    req_id = f"custom-allow-req-{generate_uuid()[:8]}"
     client = TestClient(app)
     resp = client.post(
         "/api/v1/dev/test-requests",
-        json={"scenario": "ALLOW", "request_id": "custom-allow-req-01"},
+        json={"scenario": "ALLOW", "request_id": req_id},
     )
     assert resp.status_code == 200
     data = resp.json()
 
     # Invariants
     assert data["scenario"] == "ALLOW"
-    assert data["request_id"] == "custom-allow-req-01"
+    assert data["request_id"] == req_id
     assert data["decision"] == "ALLOW"
     assert data["status"] == "COMPLETED"
     assert data["authorized"] is True
@@ -36,20 +38,22 @@ def test_dev_endpoint_allow_scenario():
     # Check that console operations synchronized
     ops = get_operations_service()
     decisions = ops.get_decisions(limit=10)
-    assert any(d.request_id == "custom-allow-req-01" and d.decision == SecurityDecisionType.ALLOW for d in decisions)
+    assert any(d.request_id == req_id and d.decision == SecurityDecisionType.ALLOW for d in decisions)
 
 def test_dev_endpoint_require_approval_scenario():
+    from app.security.models.utils import generate_uuid
+    req_id = f"custom-approval-req-{generate_uuid()[:8]}"
     client = TestClient(app)
     resp = client.post(
         "/api/v1/dev/test-requests",
-        json={"scenario": "REQUIRE_APPROVAL", "request_id": "custom-approval-req-01"},
+        json={"scenario": "REQUIRE_APPROVAL", "request_id": req_id},
     )
     assert resp.status_code == 200
     data = resp.json()
 
     # Invariants
     assert data["scenario"] == "REQUIRE_APPROVAL"
-    assert data["request_id"] == "custom-approval-req-01"
+    assert data["request_id"] == req_id
     assert data["decision"] == "REQUIRE_APPROVAL"
     assert data["status"] == "DENIED"
     assert data["authorized"] is False
@@ -63,20 +67,22 @@ def test_dev_endpoint_require_approval_scenario():
     approval_svc = get_approval_service()
     approval = approval_svc.get_approval(data["approval_id"])
     assert approval.status.value == "PENDING"
-    assert approval.request_id == "custom-approval-req-01"
+    assert approval.request_id == req_id
 
 def test_dev_endpoint_block_scenario_and_secret_redaction():
+    from app.security.models.utils import generate_uuid
+    req_id = f"custom-block-req-{generate_uuid()[:8]}"
     client = TestClient(app)
     resp = client.post(
         "/api/v1/dev/test-requests",
-        json={"scenario": "BLOCK", "request_id": "custom-block-req-01"},
+        json={"scenario": "BLOCK", "request_id": req_id},
     )
     assert resp.status_code == 200
     data = resp.json()
 
     # Invariants
     assert data["scenario"] == "BLOCK"
-    assert data["request_id"] == "custom-block-req-01"
+    assert data["request_id"] == req_id
     assert data["decision"] == "BLOCK"
     assert data["status"] == "DENIED"
     assert data["authorized"] is False
@@ -145,8 +151,9 @@ def test_dev_endpoint_disabled_in_production_mode():
 
 def test_dev_endpoint_does_not_bypass_pipeline():
     """Verify that requests pass genuinely through Gateway -> Enforcement -> Sandbox -> Audit."""
+    from app.security.models.utils import generate_uuid
     client = TestClient(app)
-    req_id = "pipeline-audit-check-01"
+    req_id = f"pipeline-audit-check-{generate_uuid()}"
     resp = client.post(
         "/api/v1/dev/test-requests",
         json={"scenario": "ALLOW", "request_id": req_id},
