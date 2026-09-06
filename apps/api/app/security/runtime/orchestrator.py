@@ -95,6 +95,12 @@ class AgentRuntimeOrchestrator:
         return self._default_sandbox_policy
 
     def _finalize_result(self, result: RuntimeExecutionResult) -> RuntimeExecutionResult:
+        try:
+            from app.core.observability import metrics_registry
+            metrics_registry.record_execution(result.status.value)
+        except Exception:
+            pass
+
         if self._operations_service is not None:
             try:
                 self._operations_service.record_runtime_execution(result)

@@ -80,6 +80,14 @@ class SecurityDecisionGateway:
             # Stage 4: Policy Evaluation (Phase 4)
             decision = self._policy_engine.evaluate_request(request, risk_assessment, threat_report)
 
+            try:
+                from app.core.observability import metrics_registry
+                metrics_registry.record_security_decision(decision.decision.value, risk_assessment.severity.value)
+                for sig in threat_report.signals:
+                    metrics_registry.record_threat_detection(sig.threat_type.value)
+            except Exception:
+                pass
+
             return SecurityEvaluationResult(
                 request=request,
                 threat_report=threat_report,
@@ -107,6 +115,12 @@ class SecurityDecisionGateway:
         error_detail: Optional[str] = None,
     ) -> SecurityEvaluationResult:
         """Construct a safe fail-closed BLOCK SecurityEvaluationResult."""
+        try:
+            from app.core.observability import metrics_registry
+            metrics_registry.record_security_decision("BLOCK", "CRITICAL")
+        except Exception:
+            pass
+
         req_id = request.request_id if request is not None else generate_uuid()
 
         if request is None:

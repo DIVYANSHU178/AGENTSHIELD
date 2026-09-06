@@ -18,7 +18,28 @@ def init_db(target_engine: Optional[Any] = None) -> None:
     """Initialize database tables safely and idempotently."""
     import app.models  # noqa: F401 - Register models with Base.metadata
     use_engine = target_engine or engine
-    Base.metadata.create_all(bind=use_engine)
+    try:
+        Base.metadata.create_all(bind=use_engine)
+        try:
+            from app.core.observability import get_logger
+            masked_url = settings.mask_connection_url(str(use_engine.url))
+            get_logger("agentshield.database").info(
+                f"Database tables verified/initialized: {masked_url}",
+                extra={"component": "database", "event": "DB_INIT", "outcome": "SUCCESS"},
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        try:
+            from app.core.observability import metrics_registry, get_logger
+            metrics_registry.record_database_error("init_db")
+            get_logger("agentshield.database").error(
+                f"Database initialization error: {type(exc).__name__}",
+                extra={"component": "database", "event": "DB_INIT", "outcome": "ERROR"},
+            )
+        except Exception:
+            pass
+        raise
 
 def get_db() -> Generator[Session, None, None]:
     """Dependency for providing a database session to endpoints."""

@@ -303,4 +303,31 @@ describe('API Error Classification & Semantic Invariants', () => {
       expect(err.classification).toBe('NETWORK_ERROR');
     }
   });
+
+  it('Phase 16: ApiError preserves correlationId from response headers or error payload', async () => {
+    const errPayload = { detail: 'Internal server error', correlation_id: 'req-test-corr-123' };
+    const err1 = new ApiError(500, 'Server Error', errPayload);
+    expect(err1.correlationId).toBe('req-test-corr-123');
+
+    const err2 = new ApiError(403, 'Forbidden', { detail: 'Denied' }, 'req-custom-header-id');
+    expect(err2.correlationId).toBe('req-custom-header-id');
+  });
+
+  it('Phase 16: fetchOperationalTelemetry retrieves telemetry snapshot from backend', async () => {
+    const { fetchOperationalTelemetry } = await import('./api');
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'X-Correlation-ID': 'req-telemetry-001' }),
+      json: () => Promise.resolve({
+        uptime_seconds: 120.5,
+        http_requests_total: [],
+        auth_events_total: [],
+      }),
+    });
+
+    const telemetry = await fetchOperationalTelemetry();
+    expect(telemetry.uptime_seconds).toBe(120.5);
+    expect(Array.isArray(telemetry.http_requests_total)).toBe(true);
+  });
 });

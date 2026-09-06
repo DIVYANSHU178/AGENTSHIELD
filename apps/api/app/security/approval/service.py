@@ -616,7 +616,25 @@ class ApprovalService:
         request_id: str,
         details: Dict[str, Any],
     ) -> None:
-        """Record an approval lifecycle audit event if audit trail is configured."""
+        """Record an approval lifecycle audit event and metrics if configured."""
+        corr_id = None
+        try:
+            from app.core.observability.metrics import metrics_registry
+            from app.core.observability.correlation import get_correlation_id
+            corr_id = get_correlation_id()
+            if event_type == EventType.APPROVAL_APPROVED:
+                metrics_registry.record_approval_transition("APPROVED")
+            elif event_type == EventType.APPROVAL_REJECTED:
+                metrics_registry.record_approval_transition("REJECTED")
+            elif event_type == EventType.APPROVAL_CANCELLED:
+                metrics_registry.record_approval_transition("CANCELLED")
+            elif event_type == EventType.APPROVAL_EXPIRED:
+                metrics_registry.record_approval_transition("EXPIRED")
+            elif event_type == EventType.APPROVAL_CREATED:
+                metrics_registry.record_approval_transition("CREATED")
+        except Exception:
+            pass
+
         if self._audit_trail is not None:
             try:
                 ev = SecurityEvent(
@@ -626,7 +644,7 @@ class ApprovalService:
                     timestamp=utc_now(),
                     actor="approval_workflow",
                     details=sanitize_audit_payload(details),
-                    metadata={"stage": "approval_workflow"},
+                    metadata={"stage": "approval_workflow", "correlation_id": corr_id},
                 )
                 self._audit_trail.record(ev)
             except Exception:

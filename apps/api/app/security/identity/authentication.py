@@ -27,8 +27,11 @@ from app.security.models.events import SecurityEvent
 from app.security.models.enums import EventType
 from app.config.settings import settings
 from app.security.models.utils import generate_uuid, utc_now, ensure_utc
+from app.core.observability.correlation import get_correlation_id
+from app.core.observability.metrics import metrics_registry
+from app.core.observability.logging import get_logger
 
-
+logger = get_logger("agentshield.auth")
 
 DEFAULT_DEMO_USERNAMES = frozenset({"admin", "security_lead", "ops_user", "viewer_user"})
 
@@ -110,10 +113,12 @@ class AuthenticationService:
         Returns a new valid AuthSession upon success.
         Raises InvalidCredentialsError or InactiveIdentityError on failure.
         """
+        corr_id = correlation_id or get_correlation_id()
+
         if not username or not isinstance(username, str) or not username.strip():
             self._record_audit(
                 event_type=EventType.AUTHENTICATION_FAILURE,
-                request_id=correlation_id or "auth-failure",
+                request_id=corr_id or "auth-failure",
                 details={"reason": "Empty username provided"},
             )
             raise InvalidCredentialsError("Username is required.")
@@ -121,7 +126,7 @@ class AuthenticationService:
         if not password or not isinstance(password, str):
             self._record_audit(
                 event_type=EventType.AUTHENTICATION_FAILURE,
-                request_id=correlation_id or "auth-failure",
+                request_id=corr_id or "auth-failure",
                 details={"username": username.strip(), "reason": "Empty password provided"},
             )
             raise InvalidCredentialsError("Password is required.")
@@ -130,6 +135,11 @@ class AuthenticationService:
 
         # Reject default development demo accounts in production unconditionally (fail-closed)
         if settings.is_production() and uname_norm in DEFAULT_DEMO_USERNAMES:
+            metrics_registry.record_auth_event("DEMO_PROHIBITED", "REJECTED")
+            logger.warning(
+                f"Production default demo account authentication blocked: {uname_norm}",
+                extra={"correlation_id": corr_id, "event": "DEMO_PROHIBITED", "outcome": "REJECTED"},
+            )
             audit_details: Dict[str, Any] = {
                 "username": uname_norm,
                 "reason": "Default development demo account authentication is strictly prohibited in production.",
@@ -138,7 +148,7 @@ class AuthenticationService:
                 audit_details["client_ip"] = metadata["client_ip"]
             self._record_audit(
                 event_type=EventType.AUTHENTICATION_FAILURE,
-                request_id=correlation_id or f"auth-fail-demo-prohibited-{generate_uuid()[:8]}",
+                request_id=corr_id or f"auth-fail-demo-prohibited-{generate_uuid()[:8]}",
                 details=audit_details,
             )
             raise InvalidCredentialsError("Invalid username or password.")
@@ -215,6 +225,7 @@ class AuthenticationService:
 
         session = self._session_repo.get_session(session_id.strip())
         if not session or not session.is_valid():
+            metrics_registry.record_auth_event("SESSION_INVALID", "REJECTED")
             return None
 
         identity = self._identity_repo.get_user_by_id(session.user_id)
@@ -303,6 +314,9 @@ class AuthenticationService:
         return self._identity_repo.list_users(limit=limit)
 
     def _record_audit(self, event_type: EventType, request_id: str, details: Dict[str, Any]) -> None:
+        corr_id = get_correlation_id()
+        outcome = "SUCCESS" if ("success" in event_type.value.lower() or "created" in event_type.value.lower() or "revoked" in event_type.value.lower()) else "FAILURE"
+        metrics_registry.record_auth_event(event_type.value, outcome)
         if self._audit_trail is not None:
             try:
                 ev = SecurityEvent(
@@ -312,7 +326,7 @@ class AuthenticationService:
                     timestamp=utc_now(),
                     actor="authentication_service",
                     details=sanitize_audit_payload(details),
-                    metadata={"stage": "authentication_service"},
+                    metadata={"stage": "authentication_service", "correlation_id": corr_id},
                 )
                 self._audit_trail.record(ev)
             except Exception:

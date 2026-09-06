@@ -21,6 +21,11 @@ from app.security.audit.redaction import sanitize_audit_payload
 from app.security.models.events import SecurityEvent
 from app.security.models.enums import EventType
 from app.security.models.utils import generate_uuid, utc_now
+from app.core.observability.correlation import get_correlation_id
+from app.core.observability.metrics import metrics_registry
+from app.core.observability.logging import get_logger
+
+logger = get_logger("agentshield.authz")
 
 
 
@@ -160,7 +165,25 @@ class AuthorizationService:
         return decision.allowed
 
     def _record_decision(self, decision: AuthorizationDecision, correlation_id: Optional[str] = None) -> None:
+        corr_id = correlation_id or get_correlation_id()
         event_type = EventType.AUTHORIZATION_ALLOWED if decision.allowed else EventType.AUTHORIZATION_DENIED
+        outcome = "ALLOWED" if decision.allowed else "DENIED"
+
+        # Record operational metric
+        metrics_registry.record_auth_event(event_type.value, outcome)
+
+        # Emit structured audit log
+        log_level = logger.info if decision.allowed else logger.warning
+        log_level(
+            f"Authorization {outcome}: user={decision.username} perm={decision.permission.value if decision.permission else 'none'}",
+            extra={
+                "correlation_id": corr_id,
+                "actor": decision.user_id,
+                "event": event_type.value,
+                "outcome": outcome,
+                "permission": decision.permission.value if decision.permission else None,
+            },
+        )
 
         # 1. Record to persistent authorization audit repo
         self._auth_audit_repo.record_event(
@@ -171,7 +194,7 @@ class AuthorizationService:
             permission=decision.permission.value if decision.permission else None,
             resource=decision.resource,
             reason=decision.reason,
-            correlation_id=correlation_id,
+            correlation_id=corr_id,
             timestamp=decision.timestamp,
         )
 

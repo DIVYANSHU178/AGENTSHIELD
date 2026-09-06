@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from app.security.models import Severity, ThreatType, SecurityDecisionType, SecurityEvent
 from app.security.runtime.contracts import RuntimeExecutionStatus
@@ -38,6 +38,12 @@ def get_operations_metrics(
 ) -> SecurityMetrics:
     """Retrieve operational security metrics derived from live runtime and audit state."""
     return service.get_metrics()
+
+@router.get("/telemetry", dependencies=[Depends(require_permission(Permission.VIEW_OPERATIONS))])
+def get_operations_telemetry() -> Any:
+    """Retrieve real-time operational telemetry metrics registry snapshot (Phase 16)."""
+    from app.core.observability import metrics_registry
+    return metrics_registry.get_telemetry_snapshot()
 
 @router.get("/threats", response_model=List[ThreatActivityItem], dependencies=[Depends(require_permission(Permission.VIEW_THREATS))])
 def get_operations_threats(

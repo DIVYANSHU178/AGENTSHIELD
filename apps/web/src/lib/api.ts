@@ -111,12 +111,14 @@ export class ApiError extends Error {
   public status: number;
   public classification: ApiErrorClassification;
   public details?: any;
+  public correlationId?: string;
 
-  constructor(status: number, message: string, details?: any) {
+  constructor(status: number, message: string, details?: any, correlationId?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.details = details;
+    this.correlationId = correlationId || (typeof details === 'object' && details !== null ? details.correlation_id : undefined);
 
     if (status === 401) {
       this.classification = 'AUTH_REQUIRED';
@@ -514,6 +516,16 @@ export async function runLaboratoryScenario(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ detail: response.statusText }));
     throw new ApiError(response.status, errorData.detail || `Failed to execute scenario: ${response.statusText}`, errorData);
+  }
+  return await response.json();
+}
+
+export async function fetchOperationalTelemetry(): Promise<any> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/security/operations/telemetry`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    const correlationId = response.headers.get('X-Correlation-ID') || response.headers.get('x-correlation-id') || undefined;
+    throw new ApiError(response.status, errorData.detail || `Failed to fetch operational telemetry: ${response.statusText}`, errorData, correlationId);
   }
   return await response.json();
 }
