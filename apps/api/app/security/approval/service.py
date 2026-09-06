@@ -30,6 +30,9 @@ from app.security.approval.errors import (
 )
 from app.security.audit.trail import SecurityAuditTrail
 from app.security.audit.redaction import sanitize_audit_payload, sanitize_string_value
+from app.security.identity.models import UserIdentity, Permission
+from app.security.identity.errors import AuthorizationDeniedError
+
 
 
 class ApprovalService:
@@ -37,15 +40,9 @@ class ApprovalService:
     Authoritative, deterministic Approval Workflow service for AgentShield (Roadmap Phase 11/13).
     
     PRIMARY ARCHITECTURAL PRINCIPLE:
-        APPROVAL IS NOT AUTHORIZATION.
-        
-    INVARIANTS:
-    - Approvals are strictly created only for REQUIRE_APPROVAL decisions.
-    - Approvals are cryptographically and content bound to the exact evaluated ToolRequest.
-    - Resolving an approval never directly invokes tools or manufactures ExecutionAuthorization.
-    - Transitions strictly follow the non-resurrectable lifecycle state machine.
-    - Thread-safe, deeply immutable defensive copies are returned.
-    - Supports durable persistence via ApprovalRepository while supporting pure in-memory fallback.
+    Authoritative state machine and lifecycle manager for Phase 11 Approval Requests.
+    Enforces Phase 14 RBAC authorization checks, time-bounded expiration, immutable audit recording,
+    and persistent storage via Phase 13 ApprovalRepository.
     """
 
     def __init__(
@@ -53,12 +50,18 @@ class ApprovalService:
         policy: Optional[ApprovalPolicy] = None,
         audit_trail: Optional[SecurityAuditTrail] = None,
         repository: Optional[Any] = None,
+        authorization_service: Optional[Any] = None,
     ) -> None:
         self._policy_engine = ApprovalPolicyEngine(policy=policy)
         self._audit_trail = audit_trail
         self._repository = repository
+        self._authorization_service = authorization_service
         self._approvals: Dict[str, ApprovalRequest] = {}
         self._request_to_approval: Dict[str, str] = {}
+
+    @property
+    def authorization_service(self) -> Optional[Any]:
+        return self._authorization_service
 
     @property
     def policy_engine(self) -> ApprovalPolicyEngine:
@@ -232,6 +235,20 @@ class ApprovalService:
         if not reason or not reason.strip():
             raise ValueError("Reviewer justification reason is required to approve.")
 
+        # RBAC Check: VIEWER role cannot approve requests
+        if reviewer.role and reviewer.role.strip().upper() == "VIEWER":
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval_id,
+                details={
+                    "approval_id": approval_id,
+                    "reviewer_id": reviewer.reviewer_id,
+                    "role": reviewer.role,
+                    "reason": "Reviewer with role 'VIEWER' is not authorized to resolve approvals.",
+                },
+            )
+            raise AuthorizationDeniedError("Reviewer with role 'VIEWER' is not authorized to resolve approvals.")
+
         approval = self.get_approval(approval_id)
 
         if approval.is_expired():
@@ -241,6 +258,7 @@ class ApprovalService:
 
         resolution = ApprovalResolution(
             resolution_id=generate_uuid(),
+
             approval_id=approval.approval_id,
             request_id=approval.request_id,
             reviewer=reviewer,
@@ -290,6 +308,20 @@ class ApprovalService:
         """
         if not reason or not reason.strip():
             raise ValueError("Reviewer justification reason is required to reject.")
+
+        # RBAC Check: VIEWER role cannot reject requests
+        if reviewer.role and reviewer.role.strip().upper() == "VIEWER":
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval_id,
+                details={
+                    "approval_id": approval_id,
+                    "reviewer_id": reviewer.reviewer_id,
+                    "role": reviewer.role,
+                    "reason": "Reviewer with role 'VIEWER' is not authorized to resolve approvals.",
+                },
+            )
+            raise AuthorizationDeniedError("Reviewer with role 'VIEWER' is not authorized to resolve approvals.")
 
         approval = self.get_approval(approval_id)
 
@@ -358,6 +390,121 @@ class ApprovalService:
         )
 
         return copy.deepcopy(cancelled_approval)
+
+    def approve_with_identity(
+        self,
+        approval_id: str,
+        identity: UserIdentity,
+        reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ApprovalRequest:
+        """
+        Approve request with authenticated UserIdentity context enforcing RESOLVE_APPROVALS permission.
+        """
+        if not identity.has_permission(Permission.RESOLVE_APPROVALS):
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval_id,
+                details={
+                    "approval_id": approval_id,
+                    "user_id": identity.user_id,
+                    "username": identity.username,
+                    "roles": [r.value for r in identity.roles],
+                    "reason": f"Identity '{identity.username}' lacks RESOLVE_APPROVALS permission.",
+                },
+            )
+            raise AuthorizationDeniedError(f"Identity '{identity.username}' is not authorized to resolve approvals.")
+
+        self._record_audit_event(
+            event_type=EventType.APPROVAL_AUTHORIZED,
+            request_id=approval_id,
+            details={
+                "approval_id": approval_id,
+                "user_id": identity.user_id,
+                "username": identity.username,
+                "roles": [r.value for r in identity.roles],
+                "action": "APPROVE",
+            },
+        )
+
+        reviewer = ReviewerIdentity(
+            reviewer_id=identity.user_id,
+            reviewer_name=identity.display_name,
+            role=identity.roles[0].value if identity.roles else "SECURITY_REVIEWER",
+            metadata={"username": identity.username},
+        )
+        return self.approve(approval_id=approval_id, reviewer=reviewer, reason=reason, metadata=metadata)
+
+    def reject_with_identity(
+        self,
+        approval_id: str,
+        identity: UserIdentity,
+        reason: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ApprovalRequest:
+        """
+        Reject request with authenticated UserIdentity context enforcing RESOLVE_APPROVALS permission.
+        """
+        if not identity.has_permission(Permission.RESOLVE_APPROVALS):
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval_id,
+                details={
+                    "approval_id": approval_id,
+                    "user_id": identity.user_id,
+                    "username": identity.username,
+                    "roles": [r.value for r in identity.roles],
+                    "reason": f"Identity '{identity.username}' lacks RESOLVE_APPROVALS permission.",
+                },
+            )
+            raise AuthorizationDeniedError(f"Identity '{identity.username}' is not authorized to resolve approvals.")
+
+        self._record_audit_event(
+            event_type=EventType.APPROVAL_AUTHORIZED,
+            request_id=approval_id,
+            details={
+                "approval_id": approval_id,
+                "user_id": identity.user_id,
+                "username": identity.username,
+                "roles": [r.value for r in identity.roles],
+                "action": "REJECT",
+            },
+        )
+
+        reviewer = ReviewerIdentity(
+            reviewer_id=identity.user_id,
+            reviewer_name=identity.display_name,
+            role=identity.roles[0].value if identity.roles else "SECURITY_REVIEWER",
+            metadata={"username": identity.username},
+        )
+        return self.reject(approval_id=approval_id, reviewer=reviewer, reason=reason, metadata=metadata)
+
+
+    def cancel_with_identity(
+        self,
+        approval_id: str,
+        identity: UserIdentity,
+        reason: str = "Cancelled by user",
+    ) -> ApprovalRequest:
+        """
+        Cancel request with authenticated UserIdentity context enforcing CANCEL_APPROVAL permission.
+        """
+        if not identity.has_permission(Permission.CANCEL_APPROVAL):
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval_id,
+                details={
+                    "approval_id": approval_id,
+                    "user_id": identity.user_id,
+                    "username": identity.username,
+                    "roles": [r.value for r in identity.roles],
+                    "reason": f"Identity '{identity.username}' lacks CANCEL_APPROVAL permission.",
+                },
+            )
+            raise AuthorizationDeniedError(f"Identity '{identity.username}' is not authorized to cancel approvals.")
+
+        return self.cancel(approval_id=approval_id, reason=reason)
+
 
     def expire(self, approval_id: str) -> ApprovalRequest:
         """Manually or deterministically expire a pending approval request."""

@@ -1,6 +1,7 @@
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App from './App';
+import { clearStoredToken } from './lib/api';
 
 const mockOverview = {
   overall_health: {
@@ -138,6 +139,7 @@ const mockOverview = {
 
 describe('Security Operations Console (Phase 10)', () => {
   beforeEach(() => {
+    clearStoredToken();
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/overview')) {
         return Promise.resolve({
@@ -253,7 +255,7 @@ describe('Security Operations Console (Phase 10)', () => {
   it('renders Operations Console header and overview metrics', async () => {
     render(<App />);
     expect(screen.getByText('AgentShield')).toBeInTheDocument();
-    expect(screen.getByText(/Phase 10 Operations Console/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Security Operations Console/i).length).toBeGreaterThanOrEqual(1);
 
     await waitFor(() => {
       expect(screen.getByText('Total Evaluations')).toBeInTheDocument();
@@ -287,7 +289,7 @@ describe('Security Operations Console (Phase 10)', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Security Decisions Ledger')).toBeInTheDocument();
-      expect(screen.getByText(/Awaiting Approval Workflow \(Phase 11\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Awaiting Human Security Approval/i)).toBeInTheDocument();
       expect(screen.getAllByText(/Execution: NOT STARTED/i).length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText(/TERMINAL - BLOCK/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /^approve/i })).not.toBeInTheDocument();
@@ -408,6 +410,79 @@ describe('Security Operations Console (Phase 10)', () => {
     await waitFor(() => {
       expect(screen.getByText('HEALTHY')).toBeInTheDocument();
       expect(screen.queryByText(/Backend connection lost/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('Phase 14 Semantic distinction: unauthenticated user receives HTTP 401 on protected endpoints; connection status remains HEALTHY and DISCONNECTED is NOT shown', async () => {
+    clearStoredToken();
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith('/health')) {
+        // Public root health check endpoint is healthy
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ status: 'ok', service: 'agentshield' }),
+        });
+      }
+      if (url.includes('/api/v1/auth/me')) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ detail: 'Not authenticated' }),
+        });
+      }
+      if (url.includes('/api/v1/security/operations/')) {
+        // Protected operations endpoints return 401
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ detail: 'Authentication required' }),
+        });
+      }
+      if (url.includes('/api/v1/security/approvals')) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ detail: 'Authentication required' }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    render(<App />);
+
+    // 1. Connection status must be HEALTHY (green), NOT DISCONNECTED (red)
+    await waitFor(() => {
+      expect(screen.getByText('HEALTHY')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('DISCONNECTED')).not.toBeInTheDocument();
+
+    // 2. False "Backend connection lost" error banner must NOT be shown
+    expect(screen.queryByText(/Backend connection lost/i)).not.toBeInTheDocument();
+
+    // 3. Informative "Authentication Required" banner must be displayed
+    await waitFor(() => {
+      expect(screen.getByText('Authentication Required')).toBeInTheDocument();
+      expect(screen.getByText(/operations data requires an authenticated session/i)).toBeInTheDocument();
+    });
+
+    // 4. Overview tab displays locked view with Sign In prompt
+    expect(screen.getByText('Operations Data Locked')).toBeInTheDocument();
+
+    // 5. Clicking "Sign In" opens the Login Modal
+    const signInButtons = screen.getAllByRole('button', { name: /sign in/i });
+    expect(signInButtons.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(signInButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('login-modal')).toBeInTheDocument();
+      expect(screen.getByText('AgentShield Identity')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Enter username/i)).toBeInTheDocument();
     });
   });
 });

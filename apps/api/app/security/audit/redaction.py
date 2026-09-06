@@ -14,6 +14,13 @@ SENSITIVE_KEY_PATTERNS = [
     "auth_token",
     "bearer",
     "credential",
+    "session_id",
+    "session_token",
+    "authorization",
+    "connection_string",
+    "database_url",
+    "db_pass",
+    "db_password",
 ]
 
 SAFE_OPERATIONAL_KEYS = {
@@ -29,6 +36,8 @@ SECRET_REGEX_PATTERNS = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"ghp_[a-zA-Z0-9]{36}"),
     re.compile(r"Bearer\s+[a-zA-Z0-9._~+/-]+=*", re.IGNORECASE),
+    re.compile(r"eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*"),
+    re.compile(r"\b[A-Fa-f0-9]{64}\b"),
 ]
 
 def mask_string(val: str) -> str:
@@ -55,6 +64,9 @@ def sanitize_string_value(val: str) -> str:
 
     if settings.SECRET_KEY and settings.SECRET_KEY in val:
         val = val.replace(settings.SECRET_KEY, "[REDACTED_SECRET_KEY]")
+
+    # Redact credentials in connection URLs (e.g. postgresql://user:password@host)
+    val = re.sub(r":([^@/\s]+)@", ":****@", val)
 
     # Check for regex secret patterns
     for pattern in SECRET_REGEX_PATTERNS:

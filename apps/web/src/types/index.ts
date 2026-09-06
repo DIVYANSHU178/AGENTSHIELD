@@ -2,6 +2,7 @@
 export interface HealthStatus {
   status: string;
   service: string;
+  environment?: string;
 }
 
 export interface BaseSystemConfig {
@@ -63,7 +64,17 @@ export type EventType =
   | 'APPROVAL_CANCELLED'
   | 'EXECUTED'
   | 'FAILED'
-  | 'DENIED';
+  | 'DENIED'
+  | 'AUTHENTICATION_SUCCESS'
+  | 'AUTHENTICATION_FAILURE'
+  | 'SESSION_CREATED'
+  | 'SESSION_REVOKED'
+  | 'AUTHORIZATION_ALLOWED'
+  | 'AUTHORIZATION_DENIED'
+  | 'ROLE_CHANGE'
+  | 'IDENTITY_DISABLED'
+  | 'APPROVAL_AUTHORIZED'
+  | 'APPROVAL_AUTHORIZATION_DENIED';
 
 export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
 export type ApprovalDecision = 'APPROVE' | 'REJECT';
@@ -78,6 +89,25 @@ export type RuntimeExecutionStatus =
 
 export type ComponentStatus = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN';
 export type ConnectionStatus = 'CONNECTING' | 'HEALTHY' | 'DISCONNECTED';
+
+export type ApiErrorClassification =
+  | 'NETWORK_ERROR'
+  | 'AUTH_REQUIRED'
+  | 'FORBIDDEN'
+  | 'SUCCESS'
+  | 'UNEXPECTED_SERVER_ERROR';
+
+export type TabType =
+  | 'overview'
+  | 'threats'
+  | 'decisions'
+  | 'approvals'
+  | 'executions'
+  | 'audit'
+  | 'diagnostics'
+  | 'laboratory'
+  | string;
+
 
 // Phase 1 Security Domain Interfaces
 export interface AgentIdentity {
@@ -334,4 +364,111 @@ export interface ScenarioResult {
   passed: boolean;
   message: string;
   metadata?: Record<string, unknown>;
+}
+
+// Phase 14 Identity, Authentication & RBAC Contracts
+export type Role = 'VIEWER' | 'OPERATOR' | 'SECURITY_REVIEWER' | 'ADMIN';
+
+export type Permission =
+  | 'VIEW_OPERATIONS'
+  | 'VIEW_THREATS'
+  | 'VIEW_DECISIONS'
+  | 'VIEW_AUDIT'
+  | 'VIEW_APPROVALS'
+  | 'RESOLVE_APPROVALS'
+  | 'CANCEL_APPROVAL'
+  | 'RUN_SCENARIO_LAB'
+  | 'MANAGE_IDENTITIES'
+  | 'MANAGE_ROLES'
+  | 'MANAGE_SECURITY_CONFIGURATION';
+
+export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  VIEWER: [
+    'VIEW_OPERATIONS',
+    'VIEW_THREATS',
+    'VIEW_DECISIONS',
+    'VIEW_AUDIT',
+    'VIEW_APPROVALS',
+  ],
+  OPERATOR: [
+    'VIEW_OPERATIONS',
+    'VIEW_THREATS',
+    'VIEW_DECISIONS',
+    'VIEW_AUDIT',
+    'VIEW_APPROVALS',
+    'CANCEL_APPROVAL',
+    'RUN_SCENARIO_LAB',
+  ],
+  SECURITY_REVIEWER: [
+    'VIEW_OPERATIONS',
+    'VIEW_THREATS',
+    'VIEW_DECISIONS',
+    'VIEW_AUDIT',
+    'VIEW_APPROVALS',
+    'RESOLVE_APPROVALS',
+    'CANCEL_APPROVAL',
+    'RUN_SCENARIO_LAB',
+  ],
+  ADMIN: [
+    'VIEW_OPERATIONS',
+    'VIEW_THREATS',
+    'VIEW_DECISIONS',
+    'VIEW_AUDIT',
+    'VIEW_APPROVALS',
+    'RESOLVE_APPROVALS',
+    'CANCEL_APPROVAL',
+    'RUN_SCENARIO_LAB',
+    'MANAGE_IDENTITIES',
+    'MANAGE_ROLES',
+    'MANAGE_SECURITY_CONFIGURATION',
+  ],
+};
+
+export interface UserIdentity {
+  user_id: string;
+  username: string;
+  email?: string | null;
+  display_name: string;
+  roles: Role[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+  ttl_seconds?: number;
+}
+
+export interface LoginResponse {
+  session_id: string;
+  user_id: string;
+  username: string;
+  display_name: string;
+  roles: Role[];
+  issued_at: string;
+  expires_at: string;
+}
+
+export interface LogoutResponse {
+  message: string;
+  revoked: boolean;
+}
+
+export interface AuthorizeCheckRequest {
+  permission: string;
+  resource?: string | null;
+}
+
+export interface AuthorizationDecision {
+  decision_id: string;
+  user_id?: string | null;
+  username?: string | null;
+  permission: string;
+  resource?: string | null;
+  allowed: boolean;
+  reason: string;
+  timestamp: string;
 }

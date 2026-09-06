@@ -19,6 +19,9 @@ from app.security.laboratory.errors import (
 from app.security.operations.service import get_operations_service
 from app.security.approval.service import get_approval_service
 
+from app.security.identity.models import UserIdentity, Permission
+from app.security.identity.dependencies import get_current_user_optional
+
 laboratory_router = APIRouter(prefix="/dev/laboratory", tags=["scenario-laboratory"])
 
 def verify_laboratory_development_mode() -> None:
@@ -52,8 +55,14 @@ def get_scenario_runner(
 def list_laboratory_scenarios(
     category: Optional[ScenarioCategory] = None,
     registry: ScenarioRegistry = Depends(get_scenario_registry),
+    current_user: Optional[UserIdentity] = Depends(get_current_user_optional),
 ) -> List[ScenarioDefinition]:
     """Retrieve catalog of authoritative laboratory scenario definitions without secrets."""
+    if current_user is not None and not current_user.has_permission(Permission.VIEW_OPERATIONS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Identity '{current_user.username}' lacks permission to view scenarios.",
+        )
     return registry.list_scenarios(category=category)
 
 @laboratory_router.post(
@@ -64,8 +73,14 @@ def list_laboratory_scenarios(
 def run_laboratory_scenario(
     body: ScenarioRunRequest,
     runner: ScenarioRunner = Depends(get_scenario_runner),
+    current_user: Optional[UserIdentity] = Depends(get_current_user_optional),
 ) -> ScenarioResult:
     """Execute a laboratory scenario by ID through the real AgentShield security pipeline."""
+    if current_user is not None and not current_user.has_permission(Permission.RUN_SCENARIO_LAB):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Identity '{current_user.username}' is not authorized to execute laboratory scenarios.",
+        )
     try:
         return runner.run(scenario_id=body.scenario_id, request_id=body.request_id)
     except UnknownScenarioError as exc:

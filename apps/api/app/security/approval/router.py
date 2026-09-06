@@ -1,5 +1,5 @@
 from typing import Optional, List, Any, Dict
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field, field_validator
 from app.security.approval.contracts import (
     ApprovalRequest,
@@ -14,6 +14,10 @@ from app.security.approval.errors import (
     ApprovalPolicyViolationError,
     ApprovalTamperingError,
 )
+from app.security.identity.models import UserIdentity, Permission
+from app.security.identity.errors import AuthorizationDeniedError
+from app.security.identity.dependencies import get_current_user_optional
+
 
 approval_router = APIRouter(prefix="/security/approvals", tags=["approvals"])
 
@@ -91,13 +95,23 @@ def get_approval(approval_id: str) -> ApprovalRequest:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 @approval_router.post("/{approval_id}/approve", response_model=ApprovalRequest)
-def approve_request(approval_id: str, body: ReviewActionRequest) -> ApprovalRequest:
+def approve_request(
+    approval_id: str,
+    body: ReviewActionRequest,
+    current_user: Optional[UserIdentity] = Depends(get_current_user_optional),
+) -> ApprovalRequest:
     """Approve a pending approval request."""
+    if current_user is not None and not current_user.has_permission(Permission.RESOLVE_APPROVALS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Identity '{current_user.username}' is not authorized to resolve approvals.",
+        )
+
     service = get_approval_service()
     reviewer = ReviewerIdentity(
-        reviewer_id=body.reviewer_id,
-        reviewer_name=body.reviewer_name,
-        role=body.role,
+        reviewer_id=current_user.user_id if current_user else body.reviewer_id,
+        reviewer_name=current_user.display_name if current_user else body.reviewer_name,
+        role=current_user.roles[0].value if (current_user and current_user.roles) else body.role,
     )
     try:
         return service.approve(
@@ -105,19 +119,31 @@ def approve_request(approval_id: str, body: ReviewActionRequest) -> ApprovalRequ
             reviewer=reviewer,
             reason=body.reason,
         )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ApprovalNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except (ApprovalExpiredError, InvalidApprovalStateTransitionError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 @approval_router.post("/{approval_id}/reject", response_model=ApprovalRequest)
-def reject_request(approval_id: str, body: ReviewActionRequest) -> ApprovalRequest:
+def reject_request(
+    approval_id: str,
+    body: ReviewActionRequest,
+    current_user: Optional[UserIdentity] = Depends(get_current_user_optional),
+) -> ApprovalRequest:
     """Reject a pending approval request."""
+    if current_user is not None and not current_user.has_permission(Permission.RESOLVE_APPROVALS):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Identity '{current_user.username}' is not authorized to resolve approvals.",
+        )
+
     service = get_approval_service()
     reviewer = ReviewerIdentity(
-        reviewer_id=body.reviewer_id,
-        reviewer_name=body.reviewer_name,
-        role=body.role,
+        reviewer_id=current_user.user_id if current_user else body.reviewer_id,
+        reviewer_name=current_user.display_name if current_user else body.reviewer_name,
+        role=current_user.roles[0].value if (current_user and current_user.roles) else body.role,
     )
     try:
         return service.reject(
@@ -125,17 +151,31 @@ def reject_request(approval_id: str, body: ReviewActionRequest) -> ApprovalReque
             reviewer=reviewer,
             reason=body.reason,
         )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ApprovalNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except (ApprovalExpiredError, InvalidApprovalStateTransitionError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 @approval_router.post("/{approval_id}/cancel", response_model=ApprovalRequest)
-def cancel_request(approval_id: str, body: CancelActionRequest) -> ApprovalRequest:
+def cancel_request(
+    approval_id: str,
+    body: CancelActionRequest,
+    current_user: Optional[UserIdentity] = Depends(get_current_user_optional),
+) -> ApprovalRequest:
     """Cancel a pending approval request."""
+    if current_user is not None and not current_user.has_permission(Permission.CANCEL_APPROVAL):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Identity '{current_user.username}' is not authorized to cancel approvals.",
+        )
+
     service = get_approval_service()
     try:
         return service.cancel(approval_id=approval_id, reason=body.reason)
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ApprovalNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except InvalidApprovalStateTransitionError as exc:

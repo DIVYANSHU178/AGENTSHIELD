@@ -136,3 +136,62 @@ class ApprovalRequestModel(Base):
     resolution_reason = Column(Text, nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
     metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class UserIdentityModel(Base):
+    """
+    Durable storage for Phase 14 Identity Management and RBAC user accounts.
+    Stores salted password hashes with zero plaintext secrets.
+    """
+    __tablename__ = "security_users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(64), unique=True, nullable=False, index=True)
+    username = Column(String(128), unique=True, nullable=False, index=True)
+    email = Column(String(256), unique=True, nullable=True, index=True)
+    display_name = Column(String(128), nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    password_salt = Column(String(64), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    roles = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class AuthSessionModel(Base):
+    """
+    Durable storage for Phase 14 Authentication Sessions and Token Revocation.
+    """
+    __tablename__ = "security_sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(String(64), nullable=False, index=True)
+    username = Column(String(128), nullable=False, index=True)
+    issued_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    is_revoked = Column(Boolean, nullable=False, default=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revocation_reason = Column(String(256), nullable=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class AuthorizationAuditModel(Base):
+    """
+    Durable audit log for Phase 14 Authentication and Authorization decisions.
+    """
+    __tablename__ = "security_auth_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_id = Column(String(64), unique=True, nullable=False, index=True)
+    event_type = Column(String(64), nullable=False, index=True)
+    user_id = Column(String(64), nullable=True, index=True)
+    username = Column(String(128), nullable=True, index=True)
+    permission = Column(String(64), nullable=True, index=True)
+    resource = Column(String(256), nullable=True)
+    decision = Column(String(32), nullable=False, index=True)
+    reason = Column(Text, nullable=True)
+    timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
+    correlation_id = Column(String(64), nullable=True, index=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)

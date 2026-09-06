@@ -7,6 +7,9 @@ from app.security.persistence.decision_repository import DecisionRepository
 from app.security.persistence.threat_repository import ThreatRepository
 from app.security.persistence.execution_repository import ExecutionRepository
 from app.security.persistence.approval_repository import ApprovalRepository
+from app.security.persistence.identity_repository import IdentityRepository
+from app.security.persistence.session_repository import SessionRepository
+from app.security.persistence.auth_audit_repository import AuthorizationAuditRepository
 
 __all__ = [
     "AuditRepository",
@@ -14,4 +17,7 @@ __all__ = [
     "ThreatRepository",
     "ExecutionRepository",
     "ApprovalRepository",
+    "IdentityRepository",
+    "SessionRepository",
+    "AuthorizationAuditRepository",
 ]

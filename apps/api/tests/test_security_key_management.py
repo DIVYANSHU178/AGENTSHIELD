@@ -15,19 +15,22 @@ def test_key_management_development_fallback():
     assert secret == "agentshield-dev-local-hmac-secret-key-do-not-use-in-production"
 
 def test_key_management_non_development_secret_present():
-    prod_settings = Settings(ENVIRONMENT="production", AGENTSHIELD_AUTHORIZATION_SECRET="prod-super-secret-key-999")
+    prod_settings = Settings(
+        ENVIRONMENT="production",
+        AGENTSHIELD_AUTHORIZATION_SECRET="prod-super-secret-key-999",
+        SECRET_KEY="a" * 32,
+        DATABASE_URL="sqlite:///./agentshield_prod.db",
+    )
     secret = prod_settings.get_authorization_secret()
     assert secret == "prod-super-secret-key-999"
 
 def test_key_management_non_development_secret_missing_raises():
-    prod_settings = Settings(ENVIRONMENT="production", AGENTSHIELD_AUTHORIZATION_SECRET=None)
     with pytest.raises(ValueError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
-        prod_settings.get_authorization_secret()
+        Settings(ENVIRONMENT="production", AGENTSHIELD_AUTHORIZATION_SECRET=None, SECRET_KEY="a" * 32)
 
 def test_key_management_empty_secret_rejection():
-    prod_settings = Settings(ENVIRONMENT="production", AGENTSHIELD_AUTHORIZATION_SECRET="   ")
     with pytest.raises(ValueError, match="CRITICAL SECURITY CONFIGURATION ERROR"):
-        prod_settings.get_authorization_secret()
+        Settings(ENVIRONMENT="production", AGENTSHIELD_AUTHORIZATION_SECRET="   ", SECRET_KEY="a" * 32)
 
 def test_secret_never_leaks_in_serialized_authorization_or_metadata():
     secret_key = "sensitive-secret-token-to-never-leak"

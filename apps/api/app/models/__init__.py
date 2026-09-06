@@ -8,6 +8,9 @@ from app.models.models import (
     ThreatActivityModel,
     ExecutionActivityModel,
     ApprovalRequestModel,
+    UserIdentityModel,
+    AuthSessionModel,
+    AuthorizationAuditModel,
 )
 
 __all__ = [
@@ -16,4 +19,7 @@ __all__ = [
     "ThreatActivityModel",
     "ExecutionActivityModel",
     "ApprovalRequestModel",
+    "UserIdentityModel",
+    "AuthSessionModel",
+    "AuthorizationAuditModel",
 ]

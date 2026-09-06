@@ -9,7 +9,9 @@ from app.schemas.health import HealthResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan context manager for database initialization and cleanup."""
+    """Lifespan context manager for database initialization and startup security validation."""
+    if settings.is_production():
+        settings.validate_production_secrets()
     init_db()
     yield
 
@@ -20,35 +22,43 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Configuration for local development
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+# Dynamic CORS Configuration supporting localhost and configurable LAN origins
+cors_kwargs = {
+    "allow_origins": settings.get_cors_origins(),
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+origin_regex = settings.get_cors_origin_regex()
+if origin_regex:
+    cors_kwargs["allow_origin_regex"] = origin_regex
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, **cors_kwargs)
+
 
 # Direct health endpoint at root /health
 @app.get("/health", response_model=HealthResponse, tags=["health"])
 def health_check() -> HealthResponse:
     """Root health check endpoint."""
-    return HealthResponse(status="ok", service="agentshield")
+    return HealthResponse(status="ok", service="agentshield", environment=settings.ENVIRONMENT)
 
 # Include API v1 router
 app.include_router(api_router, prefix="/api/v1")
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
-    """Global exception handler for unhandled errors."""
+    """Global exception handler for unhandled errors with strict secret sanitization."""
+    from app.security.audit.redaction import sanitize_string_value
+
+    if settings.is_dev_mode():
+        sanitized_error = sanitize_string_value(str(exc))
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "error": sanitized_error},
+        )
+
+    # In production and QA, prevent internal information disclosure
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error", "error": str(exc)},
+        content={"detail": "Internal server error", "error": "An unexpected error occurred."},
     )

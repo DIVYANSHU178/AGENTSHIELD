@@ -7,6 +7,7 @@ import {
   RiskAssessment,
   SecurityDecision,
   SecurityEvent,
+  ROLE_PERMISSIONS,
 } from './index';
 
 describe('Phase 1 TypeScript Contracts', () => {
@@ -153,5 +154,16 @@ describe('Phase 1 TypeScript Contracts', () => {
     expect(statuses).toContain('CONNECTING');
     expect(statuses).toContain('HEALTHY');
     expect(statuses).toContain('DISCONNECTED');
+  });
+
+  it('validates Phase 14 Role, Permission, and ROLE_PERMISSIONS mapping', () => {
+    expect(ROLE_PERMISSIONS.ADMIN).toContain('MANAGE_IDENTITIES');
+    expect(ROLE_PERMISSIONS.ADMIN).toContain('RESOLVE_APPROVALS');
+    expect(ROLE_PERMISSIONS.ADMIN).toContain('RUN_SCENARIO_LAB');
+    expect(ROLE_PERMISSIONS.SECURITY_REVIEWER).toContain('RESOLVE_APPROVALS');
+    expect(ROLE_PERMISSIONS.SECURITY_REVIEWER).not.toContain('MANAGE_IDENTITIES');
+    expect(ROLE_PERMISSIONS.VIEWER).toContain('VIEW_OPERATIONS');
+    expect(ROLE_PERMISSIONS.VIEWER).not.toContain('RESOLVE_APPROVALS');
+    expect(ROLE_PERMISSIONS.VIEWER).not.toContain('RUN_SCENARIO_LAB');
   });
 });

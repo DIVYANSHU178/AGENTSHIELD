@@ -42,11 +42,10 @@ class SecurityEnforcementBoundary:
     ) -> None:
         self._gateway = gateway or SecurityDecisionGateway()
         self._default_token_ttl_seconds = default_token_ttl_seconds
-        try:
-            self._secret_key = secret_key or settings.get_authorization_secret()
-        except Exception:
-            # Fallback for secret resolution failure during init
-            self._secret_key = None
+        if secret_key:
+            self._secret_key = secret_key
+        else:
+            self._secret_key = settings.get_authorization_secret()
 
     @property
     def gateway(self) -> SecurityDecisionGateway:

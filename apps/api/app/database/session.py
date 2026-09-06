@@ -27,3 +27,43 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+def configure_database(target_url: Optional[str] = None) -> Any:
+    """
+    Dynamically reconfigure the database engine and SessionLocal to point to a specified URL
+    (or to settings.DATABASE_URL if target_url is not specified).
+    Also invalidates and resets in-memory singleton services to ensure all repositories
+    rebind to the new session factory.
+    """
+    global engine, SessionLocal
+    url = target_url or settings.DATABASE_URL
+    conn_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    engine = create_engine(url, connect_args=conn_args, echo=False)
+    SessionLocal.configure(bind=engine)
+
+    # Invalidate singleton services so subsequent calls re-initialize with the new database
+    try:
+        from app.security.operations.service import set_operations_service
+        set_operations_service(None)
+    except Exception:
+        pass
+
+    try:
+        from app.security.approval.service import set_approval_service
+        set_approval_service(None)
+    except Exception:
+        pass
+
+    try:
+        from app.security.identity.authentication import set_auth_service
+        set_auth_service(None)
+    except Exception:
+        pass
+
+    try:
+        from app.security.identity.authorization import set_authorization_service
+        set_authorization_service(None)
+    except Exception:
+        pass
+
+    return engine
