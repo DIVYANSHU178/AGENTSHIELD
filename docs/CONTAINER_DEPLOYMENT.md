@@ -109,7 +109,7 @@ export DEBUG=false
 export ALLOW_DEFAULT_CREDENTIALS=false
 export AGENTSHIELD_AUTHORIZATION_SECRET="4d89a7f39b4e1837c2a10582d90f2381ab49c631e80927da084e72fb8134ad65"
 export SECRET_KEY="9f83a2b1049581c7e6d5a3b2c1e0f984a7b6c5d4e3f2a10987654321fedcba09"
-export DATABASE_URL="postgresql://agentshield_prod:SuperSecurePass123!@db.internal:5432/agentshield"
+export DATABASE_URL="postgresql://agentshield_prod:<STRONG_PASSWORD_FROM_VAULT>@db.internal:5432/agentshield"
 
 docker compose -f docker-compose.prod.yml up --build -d
 ```

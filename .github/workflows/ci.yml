@@ -1,0 +1,116 @@
+name: AgentShield CI
+
+"on":
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend Tests & Phase Verifications
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "apps/api/requirements.txt"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Run Backend Pytest Suite
+        run: pytest -q apps/api/tests
+
+      - name: Run Phase 14 Acceptance Verification
+        run: python scripts/verify_phase14_acceptance.py
+
+      - name: Run Phase 14 Scenario Demonstration
+        run: python apps/api/scripts/demo_phase14.py
+
+      - name: Run Phase 15 Core Secrets Verification
+        run: python scripts/verify_phase15.py
+
+      - name: Run Phase 15 Acceptance Verification
+        run: python scripts/verify_phase15_acceptance.py
+
+      - name: Run Phase 16 Observability Verification
+        run: python scripts/verify_phase16.py
+
+      - name: Run Phase 17 Hardening Verification
+        run: python scripts/verify_phase17.py
+
+      - name: Run Phase 19 CI/CD Security Verification
+        run: python scripts/verify_phase19.py
+
+  frontend:
+    name: Frontend Tests, Typecheck & Bundle Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "apps/web/package-lock.json"
+
+      - name: Install Frontend Dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run Frontend Vitest Suite
+        working-directory: apps/web
+        run: npm test -- --run
+
+      - name: Run Frontend Production Build (Typecheck & Vite)
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Set up Python for Bundle Secret Scan
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+
+      - name: Scan Built Bundle for Leaked Credentials
+        run: python scripts/scan_secrets.py --include-dist
+
+  container:
+    name: Container Build & Runtime Security Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "apps/api/requirements.txt"
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Build API Container Image
+        run: docker build -t agentshield-api:test apps/api
+
+      - name: Build Web Container Image
+        run: docker build -t agentshield-web:test apps/web
+
+      - name: Execute Independent Phase 18 Container Verification Suite
+        run: python scripts/verify_phase18.py

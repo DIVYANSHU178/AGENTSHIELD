@@ -1,0 +1,74 @@
+name: AgentShield Security Audits
+
+"on":
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 2 * * 1" # Weekly baseline audit every Monday at 02:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Source & Manifest Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+
+      - name: Execute Automated Secret Scanner
+        run: python scripts/scan_secrets.py
+
+  dependency-audit:
+    name: Dependency Vulnerability Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4.2.0
+        with:
+          node-version: "20"
+
+      - name: Execute Dependency Security Auditor
+        run: python scripts/audit_dependencies.py
+
+  static-security:
+    name: Static Security Policy & Endpoint RBAC Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.11"
+
+      - name: Install API Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Generate Machine-Readable Endpoint Inventory
+        run: python scripts/extract_endpoint_inventory.py
+
+      - name: Verify Endpoint Inventory Contains Zero Secrets
+        run: python scripts/scan_secrets.py --target endpoint_inventory.json
+
+      - name: Execute Static Security Policy Checker
+        run: python scripts/check_static_security.py

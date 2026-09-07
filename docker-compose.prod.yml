@@ -17,6 +17,7 @@ services:
     image: agentshield-api:production
     container_name: agentshield-backend-prod
     restart: always
+    read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -53,6 +54,7 @@ services:
     image: agentshield-web:production
     container_name: agentshield-frontend-prod
     restart: always
+    read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -64,6 +66,8 @@ services:
         condition: service_healthy
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=32m
+      - /var/run:rw,noexec,nosuid,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
     networks:
       - agentshield-prod-network
     healthcheck:

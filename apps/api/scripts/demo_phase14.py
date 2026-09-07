@@ -26,6 +26,9 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
 
 # Ensure app package is importable
+API_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if API_DIR not in sys.path:
+    sys.path.insert(0, API_DIR)
 sys.path.insert(0, os.path.abspath("."))
 
 from sqlalchemy import create_engine
