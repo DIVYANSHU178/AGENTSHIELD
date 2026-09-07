@@ -4,8 +4,9 @@ Authentication, Authorization & Identity Management REST API Router for AgentShi
 
 from typing import List, Optional, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Response, Path, Query
 from pydantic import BaseModel, Field, field_validator
+from app.config.settings import settings
 from app.security.identity.models import (
     Role,
     Permission,
@@ -53,6 +54,7 @@ class LoginResponse(BaseModel):
     roles: List[str] = Field(..., description="Assigned RBAC roles")
     issued_at: datetime = Field(..., description="UTC issuance timestamp")
     expires_at: datetime = Field(..., description="UTC expiration timestamp")
+    csrf_token: Optional[str] = Field(default=None, description="Cryptographic CSRF token for cookie-authenticated clients")
 
 
 class LogoutResponse(BaseModel):
@@ -82,11 +84,13 @@ class UpdateRolesRequest(BaseModel):
 def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> LoginResponse:
     """
     Authenticate user credentials and issue an active session token.
     Enforces login brute-force rate limits per IP and username.
+    Issues secure HttpOnly session cookie alongside the response.
     """
     check_login_rate_limit(request, body.username)
     try:
@@ -100,6 +104,28 @@ def login(
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Session initialization failed.")
 
         record_login_success(request, body.username)
+        is_prod = settings.is_production() if hasattr(settings, "is_production") else False
+        import secrets as _secrets
+        csrf_token = _secrets.token_hex(32)
+        response.set_cookie(
+            key="session_id",
+            value=session.session_id,
+            httponly=True,
+            secure=is_prod,
+            samesite="lax",
+            path="/",
+            max_age=int(body.ttl_seconds),
+        )
+        response.set_cookie(
+            key="csrf_token",
+            value=csrf_token,
+            httponly=False,
+            secure=is_prod,
+            samesite="lax",
+            path="/",
+            max_age=int(body.ttl_seconds),
+        )
+        response.headers["X-CSRF-Token"] = csrf_token
         return LoginResponse(
             session_id=session.session_id,
             user_id=user.user_id,
@@ -108,6 +134,7 @@ def login(
             roles=[r.value for r in user.roles],
             issued_at=session.issued_at,
             expires_at=session.expires_at,
+            csrf_token=csrf_token,
         )
     except InactiveIdentityError as exc:
         record_login_failure(request, body.username)
@@ -122,12 +149,15 @@ def login(
 
 @auth_router.post("/logout", response_model=LogoutResponse)
 def logout(
+    response: Response,
     token: Optional[str] = Depends(get_current_token),
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> LogoutResponse:
     """
-    Explicitly revoke the current authentication session token.
+    Explicitly revoke the current authentication session token and clear session cookie.
     """
+    response.delete_cookie(key="session_id", path="/")
+    response.delete_cookie(key="csrf_token", path="/")
     if not token:
         return LogoutResponse(message="No active session provided", revoked=False)
 

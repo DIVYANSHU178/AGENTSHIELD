@@ -121,11 +121,105 @@ class MediumRiskRule(PolicyRule):
 
 
 class DefaultAllowRule(PolicyRule):
-    """Rule 5: Allow request when no higher-priority rule matches (Priority 0)."""
+    """Rule 5: Bounded allow for safe low-risk requests meeting criteria (Priority 0)."""
 
     RULE_ID = "policy.default.allow"
     PRIORITY = 0
-    DESCRIPTION = "Allow request when no higher-priority blocking or approval policy condition is triggered."
+    DESCRIPTION = "Allow low-risk request when no higher-priority blocking or approval policy condition is triggered."
+
+    @property
+    def rule_id(self) -> str:
+        return self.RULE_ID
+
+    @property
+    def priority(self) -> int:
+        return self.PRIORITY
+
+    @property
+    def description(self) -> str:
+        return self.DESCRIPTION
+
+    def evaluate(self, context: PolicyContext) -> Optional[Tuple[SecurityDecisionType, str]]:
+        sev = context.risk_assessment.severity
+        score = context.risk_assessment.risk_score
+        if sev in (Severity.LOW, Severity.INFO) and score < 30.0:
+            return (
+                SecurityDecisionType.ALLOW,
+                "Request allowed because no blocking or approval policy condition was triggered and risk profile is low.",
+            )
+        return (
+            SecurityDecisionType.BLOCK,
+            "Request denied by fail-closed default boundary: risk profile does not qualify for default allow.",
+        )
+
+
+class InjectionDetectedBlockRule(PolicyRule):
+    """Rule 2.5: Block requests with active prompt injection or jailbreak signals (Priority 85)."""
+
+    RULE_ID = "policy.threat.injection.block"
+    PRIORITY = 85
+    DESCRIPTION = "Block requests where prompt injection, jailbreak, or adversarial manipulation was detected."
+
+    @property
+    def rule_id(self) -> str:
+        return self.RULE_ID
+
+    @property
+    def priority(self) -> int:
+        return self.PRIORITY
+
+    @property
+    def description(self) -> str:
+        return self.DESCRIPTION
+
+    def evaluate(self, context: PolicyContext) -> Optional[Tuple[SecurityDecisionType, str]]:
+        if getattr(context, "threat_signals", None):
+            for signal in context.threat_signals:
+                tt = getattr(signal, "threat_type", None) or (signal.get("threat_type") if isinstance(signal, dict) else "")
+                if str(tt).lower() in ("prompt_injection", "jailbreak", "adversarial_manipulation"):
+                    return (
+                        SecurityDecisionType.BLOCK,
+                        f"Request blocked due to detected {tt} signal.",
+                    )
+        return None
+
+
+class AuthorizedLowRiskAllowRule(PolicyRule):
+    """Rule: Explicitly allow low-risk requests meeting bounded criteria (Priority 10)."""
+
+    RULE_ID = "policy.risk.low.allow"
+    PRIORITY = 10
+    DESCRIPTION = "Allow low-risk requests meeting all bounded criteria and explicit capability grants."
+
+    @property
+    def rule_id(self) -> str:
+        return self.RULE_ID
+
+    @property
+    def priority(self) -> int:
+        return self.PRIORITY
+
+    @property
+    def description(self) -> str:
+        return self.DESCRIPTION
+
+    def evaluate(self, context: PolicyContext) -> Optional[Tuple[SecurityDecisionType, str]]:
+        sev = context.risk_assessment.severity
+        score = context.risk_assessment.risk_score
+        if sev in (Severity.LOW, Severity.INFO) and score < 30.0:
+            return (
+                SecurityDecisionType.ALLOW,
+                f"Request explicitly allowed: low risk profile ({score:.1f}) and compliant parameters.",
+            )
+        return None
+
+
+class DefaultDenyRule(PolicyRule):
+    """Rule: Catch-all fail-closed security boundary (Priority 0)."""
+
+    RULE_ID = "policy.default.deny"
+    PRIORITY = 0
+    DESCRIPTION = "Fail-closed catch-all rule: Deny any action not explicitly permitted by preceding policies."
 
     @property
     def rule_id(self) -> str:
@@ -141,6 +235,6 @@ class DefaultAllowRule(PolicyRule):
 
     def evaluate(self, context: PolicyContext) -> Optional[Tuple[SecurityDecisionType, str]]:
         return (
-            SecurityDecisionType.ALLOW,
-            "Request allowed because no blocking or approval policy condition was triggered.",
+            SecurityDecisionType.BLOCK,
+            "Request blocked by default fail-closed security boundary (no preceding allow policy matched).",
         )

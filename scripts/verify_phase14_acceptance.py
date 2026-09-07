@@ -294,9 +294,9 @@ def run_acceptance_verification():
     print("=" * 50)
 
     # 16. Create/isolate a legitimate PENDING approval
-    approval_repo = ApprovalRepository(session_factory=SessionLocal)
-    test_approval = ApprovalRequest(
-        approval_id=f"app-sec-test-{uuid.uuid4().hex[:8]}",
+    from app.security.enforcement.authorization import calculate_request_fingerprint
+    from app.security.models import ToolRequest
+    _req = ToolRequest(
         request_id=f"req-sec-test-{uuid.uuid4().hex[:8]}",
         agent=AgentIdentity(agent_id="ag-audit-01", name="SecurityTestAgent"),
         tool_name="database.execute_sql",
@@ -304,7 +304,18 @@ def run_acceptance_verification():
         action=ActionType.EXECUTE,
         target="customer_financials",
         parameters={"query": "DROP TABLE transactions;"},
-        request_fingerprint="fp_" + uuid.uuid4().hex,
+    )
+    approval_repo = ApprovalRepository(session_factory=SessionLocal)
+    test_approval = ApprovalRequest(
+        approval_id=f"app-sec-test-{uuid.uuid4().hex[:8]}",
+        request_id=_req.request_id,
+        agent=_req.agent,
+        tool_name=_req.tool_name,
+        tool_category=_req.tool_category,
+        action=_req.action,
+        target=_req.target,
+        parameters=_req.parameters,
+        request_fingerprint=calculate_request_fingerprint(_req),
         risk_score=94.5,
         severity=Severity.CRITICAL,
         threat_summary="Malicious schema destruction payload",

@@ -179,3 +179,47 @@ class ExecutionAuthorization(BaseModel):
             return hmac.compare_digest(expected_sig, self.signature)
         except Exception:
             return False
+
+
+def mint_execution_authorization(
+    request: ToolRequest,
+    policy_id: str = "policy.default",
+    risk_score: float = 10.0,
+    correlation_id: Optional[str] = None,
+    ttl_seconds: int = 300,
+    secret_key: Optional[str] = None,
+) -> ExecutionAuthorization:
+    """
+    Mint an authoritative, cryptographically signed ExecutionAuthorization capability token.
+    Binds the exact request fingerprint and metadata.
+    """
+    from datetime import timedelta
+    req_fingerprint = calculate_request_fingerprint(request)
+    issued_at = utc_now()
+    expires_at = issued_at + timedelta(seconds=ttl_seconds)
+    auth_id = generate_uuid()
+    corr_id = correlation_id or request.request_id
+    sig = calculate_authorization_signature(
+        authorization_id=auth_id,
+        request_id=request.request_id,
+        correlation_id=corr_id,
+        decision_value=SecurityDecisionType.ALLOW.value,
+        request_fingerprint=req_fingerprint,
+        policy_id=policy_id,
+        risk_score=risk_score,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        secret_key=secret_key,
+    )
+    return ExecutionAuthorization(
+        authorization_id=auth_id,
+        request_id=request.request_id,
+        correlation_id=corr_id,
+        decision=SecurityDecisionType.ALLOW,
+        request_fingerprint=req_fingerprint,
+        policy_id=policy_id,
+        risk_score=risk_score,
+        issued_at=issued_at,
+        expires_at=expires_at,
+        signature=sig,
+    )

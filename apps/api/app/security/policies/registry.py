@@ -47,3 +47,31 @@ def create_default_policy_registry() -> PolicyRegistry:
     registry.register(MediumRiskRule())
     registry.register(DefaultAllowRule())
     return registry
+
+
+def create_fail_closed_policy_registry() -> PolicyRegistry:
+    """
+    Factory function creating an authoritative fail-closed PolicyRegistry.
+    Precedence:
+    CRITICAL BLOCK (100) > VERY HIGH BLOCK (90) > INJECTION BLOCK (85) >
+    HIGH APPROVAL (70) > MEDIUM APPROVAL (50) > LOW RISK ALLOW (10) > DEFAULT DENY (0).
+    """
+    from app.security.policies.rules import (
+        CriticalRiskRule,
+        VeryHighRiskRule,
+        InjectionDetectedBlockRule,
+        HighRiskRule,
+        MediumRiskRule,
+        AuthorizedLowRiskAllowRule,
+        DefaultDenyRule,
+    )
+
+    registry = PolicyRegistry()
+    registry.register(CriticalRiskRule())
+    registry.register(VeryHighRiskRule())
+    registry.register(InjectionDetectedBlockRule())
+    registry.register(HighRiskRule())
+    registry.register(MediumRiskRule())
+    registry.register(AuthorizedLowRiskAllowRule())
+    registry.register(DefaultDenyRule())
+    return registry

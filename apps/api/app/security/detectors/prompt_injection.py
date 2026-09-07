@@ -8,12 +8,19 @@ from app.security.models import (
     Severity,
 )
 from app.security.detectors.base import BaseDetector
-from app.security.detectors.utils import extract_text_fields, normalize_text
+from app.security.detectors.utils import extract_text_fields, normalize_text, get_normalized_variants
+
+LEXICAL_THREAT_DETECTION = "IMPLEMENTED"
+SEMANTIC_PROMPT_INJECTION_DETECTION = "NOT_IMPLEMENTED"
 
 class PromptInjectionDetector(BaseDetector):
     """
-    Deterministic detector for prompt injection, jailbreak attempts, and instruction overrides.
-    Inspects textual fields within a ToolRequest for known injection patterns.
+    Deterministic lexical detector for prompt injection, jailbreak attempts, and instruction overrides.
+    Inspects textual fields within a ToolRequest for known regex/lexical patterns.
+
+    CAPABILITY STATUS:
+    - LEXICAL_THREAT_DETECTION: IMPLEMENTED (high-precision deterministic regex & normalization rules)
+    - SEMANTIC_PROMPT_INJECTION_DETECTION: NOT_IMPLEMENTED (semantic embeddings/model-based NLP classifiers are not active)
     """
 
     NAME = "prompt_injection_detector"
@@ -95,37 +102,38 @@ class PromptInjectionDetector(BaseDetector):
         text_fields = extract_text_fields(request)
 
         for field_path, raw_value in text_fields:
-            normalized_value = normalize_text(raw_value)
-            if not normalized_value:
+            variants = get_normalized_variants(raw_value)
+            if not variants:
                 continue
 
-            for rule_key, (rule_title, patterns) in self.RULES.items():
-                dedup_key = (field_path, rule_key)
-                if dedup_key in seen_rules_per_field:
-                    continue
+            for norm_val in variants:
+                for rule_key, (rule_title, patterns) in self.RULES.items():
+                    dedup_key = (field_path, rule_key)
+                    if dedup_key in seen_rules_per_field:
+                        continue
 
-                for pattern in patterns:
-                    match = re.search(pattern, normalized_value)
-                    if match:
-                        matched_str = match.group(0)
-                        signals.append(
-                            ThreatSignal(
-                                threat_type=ThreatType.PROMPT_INJECTION,
-                                severity=Severity.HIGH,
-                                title=f"Prompt Injection Detected: {rule_title}",
-                                description=(
-                                    f"Detected prompt injection pattern '{rule_key}' in request field '{field_path}'."
-                                ),
-                                confidence=0.90,
-                                source=self.NAME,
-                                evidence={
-                                    "field": field_path,
-                                    "rule": rule_key,
-                                    "matched_pattern": matched_str,
-                                },
+                    for pattern in patterns:
+                        match = re.search(pattern, norm_val)
+                        if match:
+                            matched_str = match.group(0)
+                            signals.append(
+                                ThreatSignal(
+                                    threat_type=ThreatType.PROMPT_INJECTION,
+                                    severity=Severity.HIGH,
+                                    title=f"Prompt Injection Detected: {rule_title}",
+                                    description=(
+                                        f"Detected prompt injection pattern '{rule_key}' in request field '{field_path}'."
+                                    ),
+                                    confidence=0.90,
+                                    source=self.NAME,
+                                    evidence={
+                                        "field": field_path,
+                                        "rule": rule_key,
+                                        "matched_pattern": matched_str,
+                                    },
+                                )
                             )
-                        )
-                        seen_rules_per_field.add(dedup_key)
-                        break
+                            seen_rules_per_field.add(dedup_key)
+                            break
 
         return signals

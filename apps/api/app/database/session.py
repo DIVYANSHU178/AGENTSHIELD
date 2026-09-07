@@ -20,6 +20,16 @@ def init_db(target_engine: Optional[Any] = None) -> None:
     use_engine = target_engine or engine
     try:
         Base.metadata.create_all(bind=use_engine)
+        # Ensure schema migrations for existing database files
+        try:
+            from sqlalchemy import text
+            with use_engine.connect() as conn:
+                cols = [r[1] for r in conn.execute(text("PRAGMA table_info(approval_requests);")).fetchall()]
+                if cols and "execution_result" not in cols:
+                    conn.execute(text("ALTER TABLE approval_requests ADD COLUMN execution_result JSON;"))
+                    conn.commit()
+        except Exception:
+            pass
         try:
             from app.core.observability import get_logger
             masked_url = settings.mask_connection_url(str(use_engine.url))

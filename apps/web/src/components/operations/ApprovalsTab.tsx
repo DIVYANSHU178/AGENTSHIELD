@@ -527,7 +527,7 @@ export const ApprovalsTab: React.FC<ApprovalsTabProps> = ({
                 Approval History &amp; Audit Trail ({historicalApprovals.length} Resolved)
               </h3>
               <span className="text-[11px] text-slate-500 font-mono">
-                Immutable Ledger Records
+                Durable Audit Log Records
               </span>
             </div>
 

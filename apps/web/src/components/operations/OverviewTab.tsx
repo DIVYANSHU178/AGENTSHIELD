@@ -140,7 +140,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       id: 'audit',
       name: 'AUDIT',
       phaseNumber: '07',
-      subtitle: 'Immutable Ledger',
+      subtitle: 'Durable Audit Log',
       metric: `${metrics.audit_events} Records`,
       detail: 'Durable Event Persistence & Forensic Trace',
       status: 'info' as const,

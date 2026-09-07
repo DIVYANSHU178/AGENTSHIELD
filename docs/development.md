@@ -61,3 +61,30 @@
    ```bash
    npm run test
    ```
+
+---
+
+## Administrative CLI (`agentshield-admin`)
+
+Manage users, agents, policies, and system diagnostics:
+```bash
+cd apps/api
+python -m app.cli system info
+python -m app.cli users list
+python -m app.cli agents list
+python -m app.cli policies list
+```
+
+---
+
+## Security Verification & Scans
+
+1. **Independent Verification Suite**:
+   ```bash
+   python scripts/verify_phase20.py
+   ```
+
+2. **Automated Secret Scanner**:
+   ```bash
+   python scripts/scan_secrets.py
+   ```

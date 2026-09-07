@@ -4,7 +4,7 @@ Approval Repository for AgentShield Phase 13 Persistence Layer.
 Provides durable storage, transactional state transitions, and querying for ApprovalRequest records.
 """
 
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from app.models.models import ApprovalRequestModel
@@ -157,11 +157,46 @@ class ApprovalRepository:
         finally:
             session.close()
 
+    def claim_for_execution(self, approval_id: str) -> Optional[ApprovalRequest]:
+        """
+        Atomically claim a pending approval for execution.
+        Returns the claimed ApprovalRequest if successful, or None if the approval
+        does not exist or is not in PENDING status (preventing duplicate/concurrent execution).
+        """
+        if not approval_id or not approval_id.strip():
+            return None
+
+        from sqlalchemy import update
+        session = self._get_session()
+        try:
+            stmt = (
+                update(ApprovalRequestModel)
+                .where(
+                    ApprovalRequestModel.approval_id == approval_id.strip(),
+                    ApprovalRequestModel.status == ApprovalStatus.PENDING.value,
+                )
+                .values(status=ApprovalStatus.CLAIMED.value)
+            )
+            result = session.execute(stmt)
+            session.commit()
+            if result.rowcount == 0:
+                return None
+            record = session.scalar(
+                select(ApprovalRequestModel).where(ApprovalRequestModel.approval_id == approval_id.strip())
+            )
+            return self._record_to_approval(record) if record else None
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def update_status(
         self,
         approval_id: str,
         new_status: ApprovalStatus,
         resolution: Optional[ApprovalResolution] = None,
+        execution_result: Optional[Dict[str, Any]] = None,
     ) -> ApprovalRequest:
         """
         Transactionally update the status and optional resolution of an approval.
@@ -191,6 +226,9 @@ class ApprovalRepository:
                 record.resolution_decision = resolution.decision.value
                 record.resolution_reason = resolution.reason
                 record.resolved_at = resolution.resolved_at
+
+            if execution_result is not None:
+                record.execution_result = execution_result
 
             session.commit()
             return self._record_to_approval(record)
@@ -265,5 +303,6 @@ class ApprovalRepository:
             expires_at=ensure_utc(record.expires_at),
             status=ApprovalStatus(record.status),
             resolution=resolution,
+            execution_result=getattr(record, "execution_result", None),
             metadata=record.metadata_payload or {},
         )

@@ -615,8 +615,8 @@ def run_phase15_acceptance():
         # G-04 Approval & G-05 Rejection
         # Create test approval
         app_repo = ApprovalRepository(session_factory=SessionLocal)
-        t_app = ApprovalRequest(
-            approval_id=f"app-log-{uuid.uuid4().hex[:6]}",
+        from app.security.enforcement.authorization import calculate_request_fingerprint
+        _log_req = ToolRequest(
             request_id=f"req-log-{uuid.uuid4().hex[:6]}",
             agent=AgentIdentity(agent_id="ag-log", name="LogAgent"),
             tool_name="database.query",
@@ -624,7 +624,17 @@ def run_phase15_acceptance():
             action=ActionType.QUERY,
             target="logs",
             parameters={"query": "SELECT *"},
-            request_fingerprint="fp_log_test",
+        )
+        t_app = ApprovalRequest(
+            approval_id=f"app-log-{uuid.uuid4().hex[:6]}",
+            request_id=_log_req.request_id,
+            agent=_log_req.agent,
+            tool_name=_log_req.tool_name,
+            tool_category=_log_req.tool_category,
+            action=_log_req.action,
+            target=_log_req.target,
+            parameters=_log_req.parameters,
+            request_fingerprint=calculate_request_fingerprint(_log_req),
             risk_score=70.0,
             severity=Severity.HIGH,
             status=ApprovalStatus.PENDING,

@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -30,6 +31,19 @@ async def lifespan(app: FastAPI):
     if settings.is_production():
         settings.validate_production_secrets()
     init_db()
+    init_admin_user = os.environ.get("INITIAL_ADMIN_USERNAME")
+    init_admin_pass = os.environ.get("INITIAL_ADMIN_PASSWORD")
+    if init_admin_user and init_admin_pass:
+        try:
+            from app.cli import create_admin_command
+            create_admin_command(
+                username=init_admin_user,
+                password=init_admin_pass,
+                email=os.environ.get("INITIAL_ADMIN_EMAIL"),
+                confirm=True,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to bootstrap initial admin from environment: {str(exc)}")
     logger.info(
         f"AgentShield API online: environment={settings.ENVIRONMENT}",
         extra={"event": "STARTUP", "outcome": "SUCCESS", "environment": settings.ENVIRONMENT},
@@ -43,9 +57,58 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# API Hardening Middlewares (Request Bounds, Content-Type, Traversal Defense, Rate Limiting, Security Headers)
+from starlette.middleware.base import BaseHTTPMiddleware
+import hmac
+
+class CsrfDefenseMiddleware(BaseHTTPMiddleware):
+    """
+    Authoritative CSRF Defense for cookie-authenticated browser sessions (Stage 7 / P2 Finding).
+    Enforces double-submit cookie validation on mutating requests authenticated via HttpOnly session cookies.
+    Bypassed for external agent requests bearing X-Agent-Key or Authorization: Bearer.
+    """
+    async def dispatch(self, request: Request, call_next):
+        # 1. Safe HTTP methods do not mutate state
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return await call_next(request)
+
+        # 2. Exclude unauthenticated auth endpoints
+        path = request.url.path
+        if path.endswith("/auth/login") or path.endswith("/auth/csrf"):
+            return await call_next(request)
+
+        # 3. Direct API key or Bearer token callers are immune to browser CSRF
+        auth_header = request.headers.get("authorization", "").strip()
+        if auth_header.lower().startswith("bearer "):
+            return await call_next(request)
+        if request.headers.get("x-agent-key"):
+            return await call_next(request)
+        if request.headers.get("x-session-id"):
+            return await call_next(request)
+
+        # 4. Check if request relies on cookie authentication
+        cookie_session = request.cookies.get("session_id")
+        if not cookie_session or not cookie_session.strip():
+            # Not authenticated via cookie; dependency will reject with 401 if auth is required
+            return await call_next(request)
+
+        # 5. Cookie-authenticated mutating request: validate X-CSRF-Token against csrf_token cookie
+        csrf_header = request.headers.get("x-csrf-token", "").strip()
+        csrf_cookie = request.cookies.get("csrf_token", "").strip()
+
+        if not csrf_header or not csrf_cookie or not hmac.compare_digest(csrf_header, csrf_cookie):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "CSRF validation failed: Missing or invalid X-CSRF-Token header for cookie-authenticated request."
+                },
+            )
+
+        return await call_next(request)
+
+# API Hardening Middlewares (Request Bounds, Content-Type, Traversal Defense, Rate Limiting, Security Headers, CSRF)
 app.add_middleware(RequestBoundsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CsrfDefenseMiddleware)
 
 # Centralized Observability Middleware (correlation IDs, request timing, metrics, access logs)
 app.add_middleware(ObservabilityMiddleware)

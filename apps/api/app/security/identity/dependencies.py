@@ -134,11 +134,11 @@ def get_current_user_optional(
     return identity
 
 
-def require_permission(permission: Permission) -> Callable:
+def require_permission(permission: Permission, allow_unauthenticated_in_dev: bool = True) -> Callable:
     """
     Dependency factory that validates whether the caller has the required RBAC permission.
     If authenticated identity is present: checks authorization and raises 403 Forbidden if lacking capability.
-    If no token is present: in dev/test environments permits legacy test execution; in production raises 401.
+    If no token is present: in dev/test environments permits legacy test execution only if allow_unauthenticated_in_dev is True; otherwise raises 401.
     """
     def _permission_guard(
         user: Optional[UserIdentity] = Depends(get_current_user_optional),
@@ -153,9 +153,9 @@ def require_permission(permission: Permission) -> Callable:
                 )
             return user
 
-        # Unauthenticated request: check environment
+        # Unauthenticated request: check policy and environment
         env = (settings.ENVIRONMENT or "").strip().lower()
-        if env not in ("development", "test", "testing", "dev", "local"):
+        if not allow_unauthenticated_in_dev or env not in ("development", "test", "testing", "dev", "local"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Authentication required for permission '{permission.value}'.",

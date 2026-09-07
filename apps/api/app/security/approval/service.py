@@ -52,6 +52,10 @@ class ApprovalService:
         repository: Optional[Any] = None,
         authorization_service: Optional[Any] = None,
     ) -> None:
+        import threading
+        from app.security.sandbox.isolation import ExecutionIsolation
+        self._lock = threading.Lock()
+        self._isolation = ExecutionIsolation()
         self._policy_engine = ApprovalPolicyEngine(policy=policy)
         self._audit_trail = audit_trail
         self._repository = repository
@@ -229,8 +233,8 @@ class ApprovalService:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> ApprovalRequest:
         """
-        Record reviewer approval resolution.
-        Does NOT execute tools or manufacture authorization.
+        Record reviewer approval resolution and execute tool via isolated subprocess.
+        Enforces fingerprint verification, concurrency locking/claiming, and RBAC authorization.
         """
         if not reason or not reason.strip():
             raise ValueError("Reviewer justification reason is required to approve.")
@@ -256,9 +260,55 @@ class ApprovalService:
 
         validate_state_transition(approval.status, ApprovalStatus.APPROVED)
 
+        # 1. Cryptographic Request Fingerprint Re-verification (Stage 5 / P1 Finding)
+        reconstructed_req = ToolRequest(
+            request_id=approval.request_id,
+            agent=approval.agent,
+            tool_name=approval.tool_name,
+            tool_category=approval.tool_category,
+            action=approval.action,
+            target=approval.target,
+            parameters=dict(approval.parameters or {}),
+            destination=approval.destination,
+        )
+        import hmac
+        computed_fingerprint = calculate_request_fingerprint(reconstructed_req)
+        if not hmac.compare_digest(str(approval.request_fingerprint or ""), str(computed_fingerprint)):
+            self._record_audit_event(
+                event_type=EventType.APPROVAL_AUTHORIZATION_DENIED,
+                request_id=approval.request_id,
+                details={
+                    "approval_id": approval.approval_id,
+                    "reason": "Request fingerprint mismatch detected prior to execution (tampering attempt).",
+                    "expected_fingerprint": approval.request_fingerprint,
+                    "computed_fingerprint": computed_fingerprint,
+                },
+            )
+            raise ApprovalTamperingError(
+                f"Request fingerprint tampering detected on approval '{approval.approval_id}'. "
+                f"Stored: '{approval.request_fingerprint}', Computed: '{computed_fingerprint}'"
+            )
+
+        # 2. Concurrency Control & Atomic Claim (Stage 4 / P1 Finding)
+        if self._repository is not None:
+            claimed_approval = self._repository.claim_for_execution(approval.approval_id)
+            if claimed_approval is None:
+                raise InvalidApprovalStateTransitionError(
+                    f"Approval '{approval_id}' cannot be approved: already claimed, executing, or not in PENDING state."
+                )
+        else:
+            with self._lock:
+                fresh_status = self._approvals.get(approval.approval_id, approval).status
+                if fresh_status != ApprovalStatus.PENDING:
+                    raise InvalidApprovalStateTransitionError(
+                        f"Approval '{approval_id}' cannot be approved: status is '{fresh_status.value}', expected PENDING."
+                    )
+                self._approvals[approval.approval_id] = self._approvals[approval.approval_id].model_copy(
+                    update={"status": ApprovalStatus.CLAIMED}
+                )
+
         resolution = ApprovalResolution(
             resolution_id=generate_uuid(),
-
             approval_id=approval.approval_id,
             request_id=approval.request_id,
             reviewer=reviewer,
@@ -268,15 +318,100 @@ class ApprovalService:
             metadata=copy.deepcopy(metadata or {}),
         )
 
+        # 3. Mint Execution Authorization Capability Token (Stage 2 & 3 / P1 Finding)
+        from app.security.enforcement.authorization import mint_execution_authorization
+        auth_token = mint_execution_authorization(
+            request=reconstructed_req,
+            policy_id="approval.human_authorized",
+            risk_score=approval.risk_score,
+            correlation_id=approval.request_id,
+        )
+
+        # 4. Isolated Subprocess Tool Execution (Process Boundary)
+        exec_outcome = None
+        try:
+            tool_name = approval.tool_name.lower().strip()
+            params = dict(approval.parameters or {})
+
+            if tool_name in ("calculator", "math") or tool_name.startswith("calculator."):
+                mod_path = "app.security.execution.tools.real_calculator"
+                cls_name = "RealCalculatorTool"
+            elif tool_name in ("filesystem", "fs", "file") or tool_name.startswith("filesystem."):
+                mod_path = "app.security.execution.tools.real_filesystem"
+                cls_name = "RealFileSystemTool"
+                if "operation" not in params:
+                    if "read" in tool_name:
+                        params["operation"] = "read"
+                    elif "write" in tool_name:
+                        params["operation"] = "write"
+                    elif "list" in tool_name:
+                        params["operation"] = "list"
+                    elif "delete" in tool_name:
+                        params["operation"] = "delete"
+            elif tool_name in ("http", "network", "web") or tool_name.startswith("http."):
+                mod_path = "app.security.execution.tools.real_http"
+                cls_name = "RealHttpTool"
+            elif tool_name in ("command.restricted", "command", "shell") or tool_name.startswith("command."):
+                mod_path = "app.security.execution.tools.real_command"
+                cls_name = "RealCommandTool"
+            elif tool_name == "system.health_check":
+                mod_path = "app.security.execution.tools.real_command"
+                cls_name = "RealCommandTool"
+                params = {"command": "echo healthy"}
+            else:
+                raise ValueError(f"No executable handler registered for tool '{tool_name}'")
+
+            iso_res = self._isolation.execute_in_subprocess(
+                module_path=mod_path,
+                function_name=cls_name,
+                parameters=params,
+                capability=auth_token.model_dump(mode="json"),
+                require_capability=True,
+            )
+
+            if iso_res.get("success"):
+                exec_outcome = {
+                    "success": True,
+                    "executed": True,
+                    "result": iso_res.get("result"),
+                    "isolated": True,
+                    "isolation_level": "isolated_subprocess",
+                    "authorization_id": auth_token.authorization_id,
+                    "executed_at": utc_now().isoformat(),
+                }
+            else:
+                exec_outcome = {
+                    "success": False,
+                    "executed": True,
+                    "error": iso_res.get("error", "Execution failed in isolated process"),
+                    "isolated": True,
+                    "isolation_level": "isolated_subprocess",
+                    "authorization_id": auth_token.authorization_id,
+                    "executed_at": utc_now().isoformat(),
+                }
+        except Exception as exc:
+            exec_outcome = {
+                "success": False,
+                "executed": True,
+                "error": str(exc),
+                "isolated": True,
+                "isolation_level": "isolated_subprocess",
+                "executed_at": utc_now().isoformat(),
+            }
+
         if self._repository is not None:
             resolved_approval = self._repository.update_status(
-                approval.approval_id, ApprovalStatus.APPROVED, resolution=resolution
+                approval.approval_id,
+                ApprovalStatus.APPROVED,
+                resolution=resolution,
+                execution_result=exec_outcome,
             )
         else:
             resolved_approval = approval.model_copy(
                 update={
                     "status": ApprovalStatus.APPROVED,
                     "resolution": resolution,
+                    "execution_result": exec_outcome,
                 }
             )
             self._approvals[approval.approval_id] = resolved_approval

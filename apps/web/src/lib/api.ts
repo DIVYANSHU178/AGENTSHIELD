@@ -55,10 +55,9 @@ export function getApiBaseUrl(): string {
 
 export const API_BASE_URL = getApiBaseUrl();
 
-const TOKEN_STORAGE_KEY = 'agentshield_session_token';
-
-// In-memory fallback if localStorage is unavailable
+// In-memory token storage (memory only; never written to localStorage to prevent session harvesting)
 let memoryToken: string | null = null;
+let memoryCsrfToken: string | null = null;
 
 // Listeners for 401 Unauthorized / session revocation
 type UnauthorizedListener = () => void;
@@ -79,29 +78,32 @@ function notifyUnauthorized(): void {
   });
 }
 
-export function getStoredToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY) || memoryToken;
-  } catch {
-    return memoryToken;
+export function getCsrfToken(): string | null {
+  if (typeof document !== 'undefined' && document.cookie) {
+    const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+    if (match) {
+      return decodeURIComponent(match[1]);
+    }
   }
+  return memoryCsrfToken;
+}
+
+export function setCsrfToken(token: string | null): void {
+  memoryCsrfToken = token;
+}
+
+export function getStoredToken(): string | null {
+  return memoryToken;
 }
 
 export function setStoredToken(token: string | null): void {
   memoryToken = token;
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-  } catch {
-    // Ignore storage quota/access errors
-  }
+  // Intentionally memory-only. Never write to localStorage (P2 Security Hardening).
 }
 
 export function clearStoredToken(): void {
-  setStoredToken(null);
+  memoryToken = null;
+  memoryCsrfToken = null;
 }
 
 /**
@@ -196,6 +198,14 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
     headers.set('X-Session-ID', token);
   }
 
+  const method = (options.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrfToken = getCsrfToken();
+    if (csrfToken && !headers.has('X-CSRF-Token')) {
+      headers.set('X-CSRF-Token', csrfToken);
+    }
+  }
+
   const mergedOptions: RequestInit = {
     ...options,
     headers,
@@ -241,6 +251,12 @@ export async function login(credentials: LoginRequest): Promise<LoginResponse> {
   const data: LoginResponse = await response.json();
   if (data.session_id) {
     setStoredToken(data.session_id);
+  }
+  const csrfHeader = response.headers?.get ? response.headers.get('X-CSRF-Token') : null;
+  if (csrfHeader) {
+    setCsrfToken(csrfHeader);
+  } else if ((data as any).csrf_token) {
+    setCsrfToken((data as any).csrf_token);
   }
   return data;
 }
@@ -528,4 +544,144 @@ export async function fetchOperationalTelemetry(): Promise<any> {
     throw new ApiError(response.status, errorData.detail || `Failed to fetch operational telemetry: ${response.statusText}`, errorData, correlationId);
   }
   return await response.json();
+}
+
+// ----------------------------------------------------------------------------
+// Stage 13 & 14: IAM, Policy Governance, and Gateway Client Methods
+// ----------------------------------------------------------------------------
+
+export async function fetchIdentities(limit = 100): Promise<UserIdentity[]> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/auth/identities?limit=${limit}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to fetch user identities', errorData);
+  }
+  return await response.json();
+}
+
+export async function createIdentity(data: {
+  username: string;
+  password: string;
+  display_name: string;
+  roles: string[];
+  email?: string;
+  is_active?: boolean;
+}): Promise<UserIdentity> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/auth/identities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to create user identity', errorData);
+  }
+  return await response.json();
+}
+
+export async function disableIdentity(userId: string): Promise<UserIdentity> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/auth/identities/${encodeURIComponent(userId)}/disable`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to disable user identity', errorData);
+  }
+  return await response.json();
+}
+
+export async function updateIdentityRoles(userId: string, roles: string[]): Promise<UserIdentity> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/auth/identities/${encodeURIComponent(userId)}/roles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roles }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to update roles', errorData);
+  }
+  return await response.json();
+}
+
+export async function fetchPolicies(isEnabled?: boolean): Promise<any[]> {
+  const url = isEnabled !== undefined
+    ? `${getApiBaseUrl()}/api/v1/policies?is_enabled=${isEnabled}`
+    : `${getApiBaseUrl()}/api/v1/policies`;
+  const response = await authFetch(url);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to fetch policies', errorData);
+  }
+  return await response.json();
+}
+
+export async function createPolicy(policy: {
+  policy_id: string;
+  name: string;
+  description: string;
+  rule_type: string;
+  priority: number;
+  conditions?: Record<string, any>;
+  action: string;
+  is_enabled?: boolean;
+}): Promise<any> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/policies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(policy),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to create policy', errorData);
+  }
+  return await response.json();
+}
+
+export async function deletePolicy(policyId: string): Promise<any> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/policies/${encodeURIComponent(policyId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to disable policy', errorData);
+  }
+  return await response.json();
+}
+
+export async function fetchRegisteredTools(): Promise<any[]> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/tools`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to fetch registered tools', errorData);
+  }
+  return await response.json();
+}
+
+export async function fetchRegisteredAgents(): Promise<any[]> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/agents`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(response.status, errorData.detail || 'Failed to fetch registered agents', errorData);
+  }
+  return await response.json();
+}
+
+export async function ingestAgentAction(action: {
+  agent_id: string;
+  action_type?: string;
+  target: string;
+  parameters?: Record<string, any>;
+  context?: Record<string, any>;
+  idempotency_key?: string;
+}): Promise<any> {
+  const response = await authFetch(`${getApiBaseUrl()}/api/v1/gateway/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(action),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 202 && response.status !== 403) {
+    throw new ApiError(response.status, data.detail || 'Gateway action failed', data);
+  }
+  return data;
 }

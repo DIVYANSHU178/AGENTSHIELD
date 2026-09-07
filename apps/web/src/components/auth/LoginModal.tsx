@@ -39,9 +39,9 @@ interface ClassifiedAuthError {
 }
 
 interface DemoProfile {
+  label: string;
   username: string;
   password: string;
-  label: string;
   role: string;
   dotColor: string;
   cardClasses: string;
@@ -160,6 +160,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   const [resolvedEnv, setResolvedEnv] = useState<string | undefined>(backendEnvironment);
 
+  const isProduction = import.meta.env.PROD || import.meta.env.MODE === 'production';
+  const isProductionBackend =
+    Boolean(resolvedEnv && (resolvedEnv.toLowerCase() === 'production' || resolvedEnv.toLowerCase() === 'prod'));
+  const canShowPresets =
+    import.meta.env.DEV && !isProduction && showDemoPresets && !isProductionBackend && DEMO_PROFILES.length > 0;
+
   useEffect(() => {
     if (backendEnvironment !== undefined) {
       setResolvedEnv(backendEnvironment);
@@ -175,11 +181,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         });
     }
   }, [isOpen, backendEnvironment]);
-
-  const isProductionBackend =
-    Boolean(resolvedEnv && (resolvedEnv.toLowerCase() === 'production' || resolvedEnv.toLowerCase() === 'prod'));
-  const canShowPresets =
-    import.meta.env.DEV && showDemoPresets && !isProductionBackend && DEMO_PROFILES.length > 0;
 
   const [username, setUsername] = useState<string>('');
   const [password, setPassword] = useState<string>('');

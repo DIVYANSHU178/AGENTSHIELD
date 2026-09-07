@@ -5,7 +5,7 @@ from app.security.detectors.sensitive_data import SensitiveDataDetector
 from app.security.detectors.destination import DestinationDetector
 from app.security.detectors.registry import DetectorRegistry, DetectorError, create_default_registry
 from app.security.detectors.builder import build_threat_report, select_highest_severity
-from app.security.detectors.utils import extract_text_fields, normalize_text
+from app.security.detectors.utils import extract_text_fields, normalize_text, get_normalized_variants, translate_leetspeak
 
 __all__ = [
     "BaseDetector",
@@ -20,4 +20,6 @@ __all__ = [
     "select_highest_severity",
     "extract_text_fields",
     "normalize_text",
+    "get_normalized_variants",
+    "translate_leetspeak",
 ]

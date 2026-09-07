@@ -14,6 +14,7 @@ from app.security.models.utils import generate_uuid, utc_now, ensure_utc, deep_f
 class ApprovalStatus(str, Enum):
     """Lifecycle states for an approval request."""
     PENDING = "PENDING"
+    CLAIMED = "CLAIMED"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
@@ -107,6 +108,7 @@ class ApprovalRequest(BaseModel):
     expires_at: datetime = Field(..., description="Expiration timestamp for approval request")
     status: ApprovalStatus = Field(default=ApprovalStatus.PENDING, description="Current approval lifecycle state")
     resolution: Optional[ApprovalResolution] = Field(default=None, description="Resolution record if reviewed")
+    execution_result: Optional[Dict[str, Any]] = Field(default=None, description="Outcome of executed tool once approved")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Approval request metadata")
 
     @field_validator("parameters", "metadata", mode="after")

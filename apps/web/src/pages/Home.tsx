@@ -14,6 +14,8 @@ import {
   LogIn,
   Menu,
   X,
+  Users,
+  Sliders,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -45,6 +47,8 @@ import { AuditTab } from '../components/operations/AuditTab';
 import { DiagnosticsTab } from '../components/operations/DiagnosticsTab';
 import { ApprovalsTab } from '../components/operations/ApprovalsTab';
 import { ScenarioLabTab } from '../components/operations/ScenarioLabTab';
+import { IAMTab } from '../components/operations/IAMTab';
+import { PoliciesTab } from '../components/operations/PoliciesTab';
 import { useAuth } from '../context/AuthContext';
 import { UserBadge } from '../components/auth/UserBadge';
 import { LoginModal } from '../components/auth/LoginModal';
@@ -277,6 +281,16 @@ export function Home() {
       label: 'Diagnostics',
       icon: Cpu,
       count: overview?.overall_health?.components?.length ?? 7,
+    },
+    {
+      id: 'policies',
+      label: 'Policies',
+      icon: Sliders,
+    },
+    {
+      id: 'iam',
+      label: 'IAM',
+      icon: Users,
     },
     {
       id: 'laboratory',
@@ -669,6 +683,8 @@ export function Home() {
                 />
               )}
               {activeTab === 'laboratory' && <ScenarioLabTab onSelectTab={handleSelectTab} />}
+              {activeTab === 'policies' && <PoliciesTab />}
+              {activeTab === 'iam' && <IAMTab />}
             </MotionTabPanel>
           </AnimatePresence>
         </div>

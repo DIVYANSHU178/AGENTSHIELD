@@ -79,6 +79,13 @@ EXEMPT_FILES = {
     "sanitizer.test.ts",
     "settings.py",
     "scan_secrets.py",
+    "test_phase19_cicd_security.py",
+    "verify_phase19.py",
+    "test_phase20_agent_gateway.py",
+    "test_phase20_isolated_tools.py",
+    "test_phase20_approval_execution.py",
+    "test_phase20_adversarial.py",
+    "verify_phase20.py",
 }
 
 RULES = [

@@ -4,11 +4,17 @@ from app.security.approval.errors import InvalidApprovalStateTransitionError
 # Valid non-terminal to terminal state transitions
 ALLOWED_TRANSITIONS = {
     ApprovalStatus.PENDING: {
+        ApprovalStatus.CLAIMED,
         ApprovalStatus.APPROVED,
         ApprovalStatus.REJECTED,
         ApprovalStatus.EXPIRED,
         ApprovalStatus.CANCELLED,
-    }
+    },
+    ApprovalStatus.CLAIMED: {
+        ApprovalStatus.APPROVED,
+        ApprovalStatus.REJECTED,
+        ApprovalStatus.CANCELLED,
+    },
 }
 
 def validate_state_transition(current_status: ApprovalStatus, target_status: ApprovalStatus) -> None:

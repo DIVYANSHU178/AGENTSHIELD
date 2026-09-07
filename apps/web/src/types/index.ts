@@ -76,7 +76,7 @@ export type EventType =
   | 'APPROVAL_AUTHORIZED'
   | 'APPROVAL_AUTHORIZATION_DENIED';
 
-export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
+export type ApprovalStatus = 'PENDING' | 'CLAIMED' | 'APPROVED' | 'REJECTED' | 'EXPIRED' | 'CANCELLED';
 export type ApprovalDecision = 'APPROVE' | 'REJECT';
 
 export type RuntimeExecutionStatus =
@@ -367,20 +367,30 @@ export interface ScenarioResult {
 }
 
 // Phase 14 Identity, Authentication & RBAC Contracts
-export type Role = 'VIEWER' | 'OPERATOR' | 'SECURITY_REVIEWER' | 'ADMIN';
+export const Role = {
+  VIEWER: 'VIEWER',
+  OPERATOR: 'OPERATOR',
+  SECURITY_REVIEWER: 'SECURITY_REVIEWER',
+  ADMIN: 'ADMIN',
+} as const;
+export type Role = (typeof Role)[keyof typeof Role];
 
-export type Permission =
-  | 'VIEW_OPERATIONS'
-  | 'VIEW_THREATS'
-  | 'VIEW_DECISIONS'
-  | 'VIEW_AUDIT'
-  | 'VIEW_APPROVALS'
-  | 'RESOLVE_APPROVALS'
-  | 'CANCEL_APPROVAL'
-  | 'RUN_SCENARIO_LAB'
-  | 'MANAGE_IDENTITIES'
-  | 'MANAGE_ROLES'
-  | 'MANAGE_SECURITY_CONFIGURATION';
+export const Permission = {
+  VIEW_OPERATIONS: 'VIEW_OPERATIONS',
+  VIEW_THREATS: 'VIEW_THREATS',
+  VIEW_DECISIONS: 'VIEW_DECISIONS',
+  VIEW_AUDIT: 'VIEW_AUDIT',
+  VIEW_APPROVALS: 'VIEW_APPROVALS',
+  RESOLVE_APPROVALS: 'RESOLVE_APPROVALS',
+  CANCEL_APPROVAL: 'CANCEL_APPROVAL',
+  RUN_SCENARIO_LAB: 'RUN_SCENARIO_LAB',
+  MANAGE_IDENTITIES: 'MANAGE_IDENTITIES',
+  MANAGE_ROLES: 'MANAGE_ROLES',
+  MANAGE_SECURITY_CONFIGURATION: 'MANAGE_SECURITY_CONFIGURATION',
+  MANAGE_TOOLS: 'MANAGE_TOOLS',
+  MANAGE_POLICIES: 'MANAGE_POLICIES',
+} as const;
+export type Permission = (typeof Permission)[keyof typeof Permission];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   VIEWER: [
@@ -421,6 +431,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'MANAGE_IDENTITIES',
     'MANAGE_ROLES',
     'MANAGE_SECURITY_CONFIGURATION',
+    'MANAGE_TOOLS',
+    'MANAGE_POLICIES',
   ],
 };
 

@@ -135,6 +135,7 @@ class ApprovalRequestModel(Base):
     resolution_decision = Column(String(32), nullable=True)
     resolution_reason = Column(Text, nullable=True)
     resolved_at = Column(DateTime(timezone=True), nullable=True)
+    execution_result = Column(JSON, nullable=True)
     metadata_payload = Column(JSON, nullable=False, default=dict)
 
 
@@ -194,4 +195,66 @@ class AuthorizationAuditModel(Base):
     reason = Column(Text, nullable=True)
     timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
     correlation_id = Column(String(64), nullable=True, index=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class AgentRegistrationModel(Base):
+    """
+    Durable storage for registered autonomous agents in the AgentShield firewall.
+    """
+    __tablename__ = "security_agents"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    api_key_hash = Column(String(256), nullable=False)
+    api_key_prefix = Column(String(16), nullable=False, index=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    allowed_tools = Column(JSON, nullable=False, default=list)
+    policy_ids = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class ToolRegistryModel(Base):
+    """
+    Durable storage for authorized tool specifications and capabilities.
+    """
+    __tablename__ = "security_tools"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tool_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), unique=True, nullable=False, index=True)
+    version = Column(String(32), nullable=False, default="1.0.0")
+    category = Column(String(64), nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    risk_classification = Column(String(32), nullable=False, default="MEDIUM")
+    handler_type = Column(String(64), nullable=False, default="isolated_process")
+    is_enabled = Column(Boolean, nullable=False, default=True, index=True)
+    allowed_environments = Column(JSON, nullable=False, default=list)
+    parameters_schema = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    metadata_payload = Column(JSON, nullable=False, default=dict)
+
+
+class PolicyDefinitionModel(Base):
+    """
+    Durable storage for configurable, persistent security policies.
+    """
+    __tablename__ = "security_policies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    policy_id = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(128), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    rule_type = Column(String(64), nullable=False, index=True)
+    priority = Column(Integer, nullable=False, default=50, index=True)
+    conditions = Column(JSON, nullable=False, default=dict)
+    action = Column(String(32), nullable=False, default="REQUIRE_APPROVAL", index=True)
+    is_enabled = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, index=True)
     metadata_payload = Column(JSON, nullable=False, default=dict)

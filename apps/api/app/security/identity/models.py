@@ -37,6 +37,8 @@ class Permission(str, Enum):
     MANAGE_IDENTITIES = "MANAGE_IDENTITIES"
     MANAGE_ROLES = "MANAGE_ROLES"
     MANAGE_SECURITY_CONFIGURATION = "MANAGE_SECURITY_CONFIGURATION"
+    MANAGE_TOOLS = "MANAGE_TOOLS"
+    MANAGE_POLICIES = "MANAGE_POLICIES"
 
 
 # Authoritative, explicit Role-to-Permission mapping (Deny by Default)
@@ -79,6 +81,8 @@ ROLE_PERMISSIONS: Dict[Role, FrozenSet[Permission]] = {
         Permission.MANAGE_IDENTITIES,
         Permission.MANAGE_ROLES,
         Permission.MANAGE_SECURITY_CONFIGURATION,
+        Permission.MANAGE_TOOLS,
+        Permission.MANAGE_POLICIES,
     }),
 }
 
