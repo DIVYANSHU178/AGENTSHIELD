@@ -1,0 +1,40 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+
+# Environments and dependencies
+.venv/
+env/
+venv/
+ENV/
+
+# Secrets, credentials, and environment configurations
+.env
+.env.*
+*.key
+*.pem
+*.cert
+*.crt
+
+# Local databases and runtime state
+*.db
+*.sqlite
+*.sqlite3
+agentshield.db
+agentshield_qa.db
+data/
+
+# Logs and test artifacts
+*.log
+tests/
+.git/
+.gitignore
+
+# IDE configurations
+.vscode/
+.idea/

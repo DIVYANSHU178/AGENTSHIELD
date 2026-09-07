@@ -1,0 +1,39 @@
+# Version control and CI
+.git/
+.github/
+.gitignore
+
+# Dependencies and virtual environments
+node_modules/
+apps/web/node_modules/
+.venv/
+apps/api/.venv/
+env/
+venv/
+
+# Build and test artifacts
+dist/
+apps/web/dist/
+.pytest_cache/
+apps/api/.pytest_cache/
+coverage/
+__pycache__/
+*.py[cod]
+
+# Secrets and environment configurations
+.env
+.env.*
+*.key
+*.pem
+*.cert
+
+# Databases and local runtime data
+*.db
+*.sqlite
+*.sqlite3
+agentshield.db
+agentshield_qa.db
+data/
+
+# Logs
+*.log

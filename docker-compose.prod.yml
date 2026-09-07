@@ -1,0 +1,83 @@
+# =============================================================================
+# AgentShield Docker Compose — Production Deployment Template
+# =============================================================================
+# CRITICAL SECURITY REQUIREMENTS:
+# 1. Mandatory runtime secrets must be injected via secure orchestrator (Kubernetes / Docker Swarm secrets)
+#    or through a restricted .env file (NEVER committed to git).
+# 2. Production will FAIL CLOSED if AGENTSHIELD_AUTHORIZATION_SECRET or SECRET_KEY are missing or < 32 chars.
+# 3. Production will FAIL CLOSED if DATABASE_URL is set to default development sqlite:///./agentshield.db.
+# 4. Containers run with non-root least privilege, dropped capabilities, and no-new-privileges.
+# =============================================================================
+
+services:
+  backend:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: agentshield-api:production
+    container_name: agentshield-backend-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - ALLOW_DEFAULT_CREDENTIALS=false
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATABASE_URL=${DATABASE_URL:?ERROR: Mandatory production DATABASE_URL must be configured}
+      - AGENTSHIELD_AUTHORIZATION_SECRET=${AGENTSHIELD_AUTHORIZATION_SECRET:?ERROR: Mandatory 32+ char AGENTSHIELD_AUTHORIZATION_SECRET required}
+      - SECRET_KEY=${SECRET_KEY:?ERROR: Mandatory 32+ char SECRET_KEY required}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    volumes:
+      - agentshield-prod-data:/app/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks:
+      - agentshield-prod-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: agentshield-web:production
+    container_name: agentshield-frontend-prod
+    restart: always
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "3000:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    networks:
+      - agentshield-prod-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  agentshield-prod-data:
+    name: agentshield-prod-data
+
+networks:
+  agentshield-prod-network:
+    name: agentshield-prod-network
+    driver: bridge

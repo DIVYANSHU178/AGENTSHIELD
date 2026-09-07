@@ -1,0 +1,64 @@
+# =============================================================================
+# AgentShield Docker Compose — Development & Integration Composition
+# NOTE: This configuration is for local development and test integration only.
+# For production deployments, refer to docker-compose.prod.yml.
+# =============================================================================
+
+services:
+  backend:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: agentshield-api:dev
+    container_name: agentshield-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:////app/data/agentshield.db
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - ALLOW_DEFAULT_CREDENTIALS=true
+      - DEBUG=false
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - agentshield-data:/app/data
+    networks:
+      - agentshield-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: agentshield-web:dev
+    container_name: agentshield-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - agentshield-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  agentshield-data:
+    name: agentshield-data
+
+networks:
+  agentshield-network:
+    name: agentshield-network
+    driver: bridge
