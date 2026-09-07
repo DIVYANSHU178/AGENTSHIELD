@@ -46,8 +46,8 @@ class ScenarioDefinition(BaseModel):
 
 class ScenarioRunRequest(BaseModel):
     """Request payload to execute a specific laboratory scenario."""
-    scenario_id: str = Field(..., description="Scenario identifier to execute")
-    request_id: Optional[str] = Field(default=None, description="Optional custom correlation request ID")
+    scenario_id: str = Field(..., min_length=1, max_length=64, description="Scenario identifier to execute")
+    request_id: Optional[str] = Field(default=None, max_length=64, description="Optional custom correlation request ID")
 
     @field_validator("scenario_id", "request_id", mode="before")
     @classmethod
@@ -59,6 +59,8 @@ class ScenarioRunRequest(BaseModel):
         stripped = value.strip()
         if not stripped and info.field_name == "scenario_id":
             raise ValueError("Field 'scenario_id' must not be empty or whitespace-only.")
+        if len(stripped) > 64:
+            raise ValueError(f"Field '{info.field_name}' exceeds maximum allowed length of 64 characters.")
         return stripped or None
 
 class ScenarioResult(BaseModel):

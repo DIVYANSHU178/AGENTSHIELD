@@ -4,7 +4,7 @@ Authentication, Authorization & Identity Management REST API Router for AgentShi
 
 from typing import List, Optional, Any
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request, Path, Query
 from pydantic import BaseModel, Field, field_validator
 from app.security.identity.models import (
     Role,
@@ -30,13 +30,18 @@ from app.security.identity.errors import (
     IdentityNotFoundError,
     IdentityAlreadyExistsError,
 )
+from app.core.hardening.rate_limiting import (
+    check_login_rate_limit,
+    record_login_failure,
+    record_login_success,
+)
 
 auth_router = APIRouter(prefix="/auth", tags=["authentication-and-identity"])
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, description="Username or login identifier")
-    password: str = Field(..., min_length=1, description="Plaintext login password")
+    username: str = Field(..., min_length=1, max_length=128, description="Username or login identifier")
+    password: str = Field(..., min_length=1, max_length=256, description="Plaintext login password")
     ttl_seconds: float = Field(default=86400.0, ge=60.0, le=604800.0, description="Session TTL in seconds")
 
 
@@ -56,8 +61,8 @@ class LogoutResponse(BaseModel):
 
 
 class AuthorizeCheckRequest(BaseModel):
-    permission: str = Field(..., description="Target permission name to evaluate")
-    resource: Optional[str] = Field(default=None, description="Optional target resource scope")
+    permission: str = Field(..., min_length=1, max_length=64, description="Target permission name to evaluate")
+    resource: Optional[str] = Field(default=None, max_length=256, description="Optional target resource scope")
 
 
 class CreateIdentityRequest(BaseModel):
@@ -76,11 +81,14 @@ class UpdateRolesRequest(BaseModel):
 @auth_router.post("/login", response_model=LoginResponse)
 def login(
     body: LoginRequest,
+    request: Request,
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> LoginResponse:
     """
     Authenticate user credentials and issue an active session token.
+    Enforces login brute-force rate limits per IP and username.
     """
+    check_login_rate_limit(request, body.username)
     try:
         session = auth_service.authenticate(
             username=body.username,
@@ -91,6 +99,7 @@ def login(
         if not user:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Session initialization failed.")
 
+        record_login_success(request, body.username)
         return LoginResponse(
             session_id=session.session_id,
             user_id=user.user_id,
@@ -101,10 +110,13 @@ def login(
             expires_at=session.expires_at,
         )
     except InactiveIdentityError as exc:
+        record_login_failure(request, body.username)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except InvalidCredentialsError as exc:
+        record_login_failure(request, body.username)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
     except AuthenticationError as exc:
+        record_login_failure(request, body.username)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
 
@@ -154,7 +166,7 @@ def check_authorization(
 
 @auth_router.get("/identities", response_model=List[UserIdentity], dependencies=[Depends(require_permission(Permission.MANAGE_IDENTITIES))])
 def list_identities(
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=500),
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> List[UserIdentity]:
     """
@@ -188,7 +200,7 @@ def create_identity(
 
 @auth_router.post("/identities/{user_id}/disable", response_model=UserIdentity, dependencies=[Depends(require_permission(Permission.MANAGE_IDENTITIES))])
 def disable_identity(
-    user_id: str,
+    user_id: str = Path(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_\-]+$"),
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> UserIdentity:
     """
@@ -202,8 +214,8 @@ def disable_identity(
 
 @auth_router.post("/identities/{user_id}/roles", response_model=UserIdentity, dependencies=[Depends(require_permission(Permission.MANAGE_ROLES))])
 def update_identity_roles(
-    user_id: str,
-    body: UpdateRolesRequest,
+    user_id: str = Path(..., min_length=3, max_length=64, pattern=r"^[a-zA-Z0-9_\-]+$"),
+    body: UpdateRolesRequest = ...,
     auth_service: AuthenticationService = Depends(get_auth_service),
 ) -> UserIdentity:
     """

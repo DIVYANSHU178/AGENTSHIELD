@@ -27,7 +27,7 @@ class DevScenario(str, Enum):
 
 class DevTestRequest(BaseModel):
     scenario: DevScenario = Field(..., description="Target security scenario to simulate (ALLOW | REQUIRE_APPROVAL | BLOCK)")
-    request_id: Optional[str] = Field(default=None, description="Optional custom request ID")
+    request_id: Optional[str] = Field(default=None, max_length=64, description="Optional custom request ID")
 
     @field_validator("request_id", mode="before")
     @classmethod
@@ -37,6 +37,8 @@ class DevTestRequest(BaseModel):
         if not isinstance(value, str):
             raise ValueError("request_id must be a string if provided.")
         stripped = value.strip()
+        if len(stripped) > 64:
+            raise ValueError("request_id exceeds maximum allowed length of 64 characters.")
         return stripped or None
 
 class DevTestResponse(BaseModel):

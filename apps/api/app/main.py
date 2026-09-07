@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.config import settings
@@ -10,8 +11,14 @@ from app.core.observability import (
     ObservabilityMiddleware,
     configure_logging,
     get_correlation_id,
+    generate_correlation_id,
     get_logger,
     health_obs_router,
+)
+from app.core.hardening import (
+    SecurityHeadersMiddleware,
+    RequestBoundsMiddleware,
+    validation_exception_handler,
 )
 
 logger = get_logger("agentshield.main")
@@ -36,6 +43,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# API Hardening Middlewares (Request Bounds, Content-Type, Traversal Defense, Rate Limiting, Security Headers)
+app.add_middleware(RequestBoundsMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # Centralized Observability Middleware (correlation IDs, request timing, metrics, access logs)
 app.add_middleware(ObservabilityMiddleware)
 
@@ -51,6 +62,9 @@ if origin_regex:
     cors_kwargs["allow_origin_regex"] = origin_regex
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+# Standardized and sanitized validation error handling
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
 # Direct health endpoint at root /health (preserves backward compatibility)
@@ -97,7 +111,12 @@ async def generic_exception_handler(request: Request, exc: Exception):
         },
     )
 
-    headers = {"X-Correlation-ID": corr_id}
+    headers = {
+        "X-Correlation-ID": corr_id,
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+    }
 
     if settings.is_dev_mode():
         sanitized_error = sanitize_string_value(str(exc))

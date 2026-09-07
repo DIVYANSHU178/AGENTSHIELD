@@ -76,7 +76,7 @@ def get_operations_executions(
 @router.get("/audit", response_model=List[SecurityEvent], dependencies=[Depends(require_permission(Permission.VIEW_AUDIT))])
 def get_operations_audit(
     limit: int = Query(default=100, ge=1, le=500),
-    request_id: Optional[str] = Query(default=None),
+    request_id: Optional[str] = Query(default=None, max_length=64),
     service: SecurityOperationsService = Depends(get_operations_service),
 ) -> List[SecurityEvent]:
     """Retrieve safely redacted security audit trail events."""
