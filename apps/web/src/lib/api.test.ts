@@ -57,29 +57,29 @@ describe('API URL Robustness & Origin Derivation', () => {
     });
   }
 
-  it('derives backend origin from localhost:5173 -> http://localhost:8000', () => {
+  it('derives backend origin from localhost:5173 -> http://localhost:8001', () => {
     mockLocation('http:', 'localhost', '5173');
-    expect(getApiBaseUrl()).toBe('http://localhost:8000');
+    expect(getApiBaseUrl()).toBe('http://localhost:8001');
   });
 
-  it('derives backend origin from 127.0.0.1:5173 -> http://127.0.0.1:8000', () => {
+  it('derives backend origin from 127.0.0.1:5173 -> http://127.0.0.1:8001', () => {
     mockLocation('http:', '127.0.0.1', '5173');
-    expect(getApiBaseUrl()).toBe('http://127.0.0.1:8000');
+    expect(getApiBaseUrl()).toBe('http://127.0.0.1:8001');
   });
 
-  it('derives backend origin from arbitrary LAN IP 172.25.1.97 -> http://172.25.1.97:8000', () => {
+  it('derives backend origin from arbitrary LAN IP 172.25.1.97 -> http://172.25.1.97:8001', () => {
     mockLocation('http:', '172.25.1.97', '5173');
-    expect(getApiBaseUrl()).toBe('http://172.25.1.97:8000');
+    expect(getApiBaseUrl()).toBe('http://172.25.1.97:8001');
   });
 
-  it('derives backend origin from arbitrary LAN IP 192.168.1.20 -> http://192.168.1.20:8000', () => {
+  it('derives backend origin from arbitrary LAN IP 192.168.1.20 -> http://192.168.1.20:8001', () => {
     mockLocation('http:', '192.168.1.20', '5173');
-    expect(getApiBaseUrl()).toBe('http://192.168.1.20:8000');
+    expect(getApiBaseUrl()).toBe('http://192.168.1.20:8001');
   });
 
-  it('derives backend origin from 10.0.0.5 with https -> https://10.0.0.5:8000', () => {
+  it('derives backend origin from 10.0.0.5 with https -> https://10.0.0.5:8001', () => {
     mockLocation('https:', '10.0.0.5', '5173');
-    expect(getApiBaseUrl()).toBe('https://10.0.0.5:8000');
+    expect(getApiBaseUrl()).toBe('https://10.0.0.5:8001');
   });
 
   it('preserves explicit VITE_API_BASE_URL as an override', () => {
@@ -100,7 +100,7 @@ describe('API URL Robustness & Origin Derivation', () => {
     mockLocation('http:', '192.168.1.55', '5173');
     (import.meta.env as any).VITE_API_BASE_URL = '   ';
 
-    expect(getApiBaseUrl()).toBe('http://192.168.1.55:8000');
+    expect(getApiBaseUrl()).toBe('http://192.168.1.55:8001');
   });
 
   it('API requests dynamically use the derived origin from current browser location', async () => {
@@ -118,7 +118,7 @@ describe('API URL Robustness & Origin Derivation', () => {
 
     await fetchOperationsOverview();
 
-    expect(calledUrl).toBe('http://192.168.1.105:8000/api/v1/security/operations/overview');
+    expect(calledUrl).toBe('http://192.168.1.105:8001/api/v1/security/operations/overview');
   });
 
   it('login API request dynamically uses derived origin', async () => {
@@ -143,7 +143,7 @@ describe('API URL Robustness & Origin Derivation', () => {
 
     await login({ username: 'lead', password: 'ValidPassword123!' });
 
-    expect(calledUrl).toBe('http://10.20.30.40:8000/api/v1/auth/login');
+    expect(calledUrl).toBe('http://10.20.30.40:8001/api/v1/auth/login');
     expect(getStoredToken()).toBe('sess-dynamic-origin-test');
   });
 

@@ -287,6 +287,82 @@ class ToolRegistryRepository:
                 "is_enabled": True,
                 "parameters_schema": {"type": "object"},
             },
+            # Phase 1.2 — EOS canonical low-risk probe tool (eos_core allowlist).
+            {
+                "tool_id": "tool-system-time",
+                "name": "system_time",
+                "category": "SYSTEM",
+                "description": "Canonical EOS system time probe (low risk; read-only clock query)",
+                "risk_classification": "LOW",
+                "handler_type": "in_process",
+                "is_enabled": True,
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string", "description": "AS operation type (QUERY)"},
+                        "target": {"type": "string", "description": "EOS target resource"},
+                        "zone": {"type": "string", "description": "E2E probe zone (approval-probe)"},
+                    },
+                },
+            },
+            # Canonical EOS desktop-automation tool (eos_core allowlist). EOS
+            # executes locally after verifying the v2 token; AS authorizes only.
+            {
+                "tool_id": "tool-open-app",
+                "name": "open_app",
+                "category": "SYSTEM",
+                "description": "Launch a desktop application on the EOS host (authorization-only gateway contract)",
+                "risk_classification": "LOW",
+                "handler_type": "in_process",
+                "is_enabled": True,
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "App identifier (e.g. notepad, chrome)"},
+                        "operation": {"type": "string", "description": "AS operation type"},
+                    },
+                },
+            },
+            # Canonical EOS post-launch verification tool (eos_core allowlist).
+            # Read-only window poll after open_app; EOS executes locally after
+            # verifying the v2 token; AS authorizes only.
+            {
+                "tool_id": "tool-wait-for-window",
+                "name": "wait_for_window",
+                "category": "SYSTEM",
+                "description": "Read-only verification: poll for an open application window (post-launch check)",
+                "risk_classification": "LOW",
+                "handler_type": "in_process",
+                "is_enabled": True,
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "Window/app title to wait for"},
+                        "title": {"type": "string", "description": "Window title to wait for"},
+                        "operation": {"type": "string", "description": "AS operation type (READ)"},
+                    },
+                },
+            },
+            # Canonical EOS window-focus tool (eos_core allowlist). Brings an
+            # open application window to the foreground on the EOS host; EOS
+            # executes locally after verifying the v2 token; AS authorizes only.
+            {
+                "tool_id": "tool-focus-window",
+                "name": "focus_window",
+                "category": "SYSTEM",
+                "description": "Bring an open application window to the foreground on the EOS host (authorization-only gateway contract)",
+                "risk_classification": "LOW",
+                "handler_type": "in_process",
+                "is_enabled": True,
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string", "description": "App/window identifier to bring to front"},
+                        "title": {"type": "string", "description": "Window title to focus"},
+                        "operation": {"type": "string", "description": "AS operation type (MODIFY)"},
+                    },
+                },
+            },
         ]
 
         for item in defaults:

@@ -89,8 +89,12 @@ def check_endpoint_inventory_policy() -> Tuple[List[str], List[str]]:
             perm = r["permission_required"]
             is_dev = r["dev_only"]
 
-            # Security and Approvals endpoints must require auth
-            if path.startswith("/api/v1/security/"):
+            # Security and Approvals endpoints must require auth. Sole documented
+            # exemption: the Phase 1.2 protocol §3.2 public signing-key discovery
+            # endpoints (public keys are not sensitive; EOS bootstraps trust with
+            # no credential). Any other unauthenticated security route is a violation.
+            PUBLIC_SIGNING_PREFIX = "/api/v1/security/signing/"
+            if path.startswith("/api/v1/security/") and not path.startswith(PUBLIC_SIGNING_PREFIX):
                 checked_routes += 1
                 if not auth_req:
                     violations.append(f"Unauthenticated security endpoint: {method} {path}")

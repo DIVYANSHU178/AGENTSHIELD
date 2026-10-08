@@ -188,7 +188,16 @@ def main():
     from scripts.extract_endpoint_inventory import get_all_routes
     routes = get_all_routes()
     sec_routes = [r for r in routes if r["path"].startswith("/api/v1/security/")]
-    all_sec_authenticated = all(r["auth_required"] for r in sec_routes)
+    # Phase 1.2 protocol §3.2 documented exemption: the signing public-key
+    # discovery endpoints are intentionally public (public key + no-credential
+    # bootstrap for EOS). All OTHER security routes must require auth.
+    PUBLIC_SIGNING_ENDPOINTS = {
+        "/api/v1/security/signing/public-key",
+        "/api/v1/security/signing/public-keys",
+    }
+    all_sec_authenticated = all(
+        r["auth_required"] for r in sec_routes if r["path"] not in PUBLIC_SIGNING_ENDPOINTS
+    )
     report("V19-20", "Endpoint inventory verification: 100% of sensitive security routes require authentication", all_sec_authenticated, f"Audited {len(sec_routes)} sensitive security routes")
 
     # 16. Production Container Configuration Hardening

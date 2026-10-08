@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     API_HOST: str = "127.0.0.1"
-    API_PORT: int = 8000
+    API_PORT: int = 8001
     DATABASE_URL: str = "sqlite:///./agentshield.db"
     QA_DATABASE_URL: str = "sqlite:///./agentshield_qa.db"
 
@@ -35,6 +35,31 @@ class Settings(BaseSettings):
     # Set AGENTSHIELD_AUTHORIZATION_SECRET in production environments (min 32 chars).
     AGENTSHIELD_AUTHORIZATION_SECRET: Optional[str] = None
     SECRET_KEY: str = "agentshield-local-security-secret-key-change-in-prod"
+
+    # Phase 1.2 — Ed25519 v2 authorization signing infrastructure.
+    # AgentShield is the sole holder of the signing private key; EOS verifies
+    # with public keys only. Missing key material in production fails CLOSED
+    # (no v2 mints, no published public key).
+    AGENTSHIELD_SIGNING_PRIVATE_KEY_BASE64: Optional[str] = None
+    AGENTSHIELD_SIGNING_PRIVATE_KEY_FILE: Optional[str] = None
+    # Optional rotation map {key_id: base64 raw public key} published to EOS.
+    AGENTSHIELD_SIGNING_PUBLIC_KEYS: Optional[str] = None
+    AGENTSHIELD_SIGNING_KEY_ID: str = "v1"
+    AGENTSHIELD_SIGNING_ISSUER: str = "eos.agentshield"
+    # Dev convenience: auto-generate apps/api/.keys when no key is configured.
+    # NEVER honored in production.
+    AGENTSHIELD_SIGNING_DEV_AUTOGEN: bool = True
+    # Max lifetime of a v2 token (seconds). Enforced at mint time.
+    AGENTSHIELD_AUTH_TOKEN_TTL_SECONDS: int = 120
+    # Env-gated Phase 1.2 E2E policy (approval probe rule activation).
+    AGENTSHIELD_PHASE12_TEST_POLICY: bool = False
+
+    # Phase 2.0 / F4 — single authoritative source for the EOS Core dev-agent
+    # key. Cross-repo contract: EOS's utils/config.AGENTSHIELD_AGENT_KEY must
+    # match this value in development mode (proven by the R3 live E2E suite).
+    # Production never relies on this literal; production agent registration
+    # is operator-provisioned via the agent API.
+    AGENTSHIELD_EOS_CORE_DEV_AGENT_KEY: str = "agk_eos_core_dev_key"
 
     # Future AI provider placeholders (DO NOT CONNECT IN PHASE 0)
     OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -47,6 +72,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173,"
         "http://localhost:3000,"
         "http://127.0.0.1:3000,"
+        "http://localhost:8000,"
+        "http://127.0.0.1:8000,"
         "http://172.25.1.97:5173"
     )
 

@@ -64,6 +64,7 @@ def create_fail_closed_policy_registry() -> PolicyRegistry:
         MediumRiskRule,
         AuthorizedLowRiskAllowRule,
         DefaultDenyRule,
+        Phase12ApprovalProbeRule,
     )
 
     registry = PolicyRegistry()
@@ -71,6 +72,7 @@ def create_fail_closed_policy_registry() -> PolicyRegistry:
     registry.register(VeryHighRiskRule())
     registry.register(InjectionDetectedBlockRule())
     registry.register(HighRiskRule())
+    registry.register(Phase12ApprovalProbeRule())
     registry.register(MediumRiskRule())
     registry.register(AuthorizedLowRiskAllowRule())
     registry.register(DefaultDenyRule())

@@ -7,6 +7,7 @@ Provides durable storage and operational querying for ExecutionActivityItem reco
 from typing import List, Optional, Callable
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.models.models import ExecutionActivityModel
 from app.security.models import ToolCategory, ActionType
 from app.security.runtime.contracts import RuntimeExecutionStatus
@@ -35,14 +36,12 @@ class ExecutionRepository:
         sanitized_meta = sanitize_audit_payload(dict(item.metadata)) if item.metadata else {}
         session = self._get_session()
         try:
-            # Check for existing execution_id
-            existing = session.scalar(
-                select(ExecutionActivityModel).where(ExecutionActivityModel.execution_id == item.execution_id)
-            )
-            if existing is not None:
-                return
-
-            record = ExecutionActivityModel(
+            # Phase 2.0 / F7 — atomic insert, no check-then-insert race.
+            # The unique constraint on execution_id is authoritative:
+            # ``ON CONFLICT DO NOTHING`` collapses concurrent writers of the
+            # same execution_id into exactly one durable row instead of one
+            # writer failing with IntegrityError.
+            values = dict(
                 execution_id=item.execution_id,
                 request_id=item.request_id,
                 tool_name=item.tool_name,
@@ -55,7 +54,10 @@ class ExecutionRepository:
                 timestamp=item.timestamp,
                 metadata_payload=sanitized_meta,
             )
-            session.add(record)
+            stmt = sqlite_insert(ExecutionActivityModel).values(**values).on_conflict_do_nothing(
+                index_elements=["execution_id"]
+            )
+            session.execute(stmt)
             session.commit()
         except Exception:
             session.rollback()

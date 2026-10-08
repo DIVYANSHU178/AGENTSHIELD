@@ -25,6 +25,18 @@ htmlcov/
 agentshield.db
 test_agentshield.db
 
+# Phase 2.0 / F7 — SQLite WAL sidecars (journal_mode=WAL creates -wal/-shm)
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+
+# Phase 1.2 — signing keys (never commit private key material)
+**.keys/
+apps/api/.keys/
+
 # System & IDE
 .DS_Store
 Thumbs.db

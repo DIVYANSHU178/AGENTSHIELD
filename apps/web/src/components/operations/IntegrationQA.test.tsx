@@ -247,6 +247,16 @@ describe('Phase 14J-C10 Global End-to-End Integration, Visual QA & UX Hardening'
   });
 
   it('1. Complete User Journey: Shell loads, navigates through all 8 tabs, and renders consoles', async () => {
+    // Phase 1.2 Stage G (web-flake hardening): this full-App journey chains 9
+    // fetch/state-driven waits. Under full-suite parallel jsdom load a single
+    // step can exceed the RTL default 1000ms timeout, so every step carries an
+    // explicit generous timeout, and the Scenario Lab run control is awaited
+    // with findByRole before clicking (it can never race the keyed
+    // MotionTabPanel remount that renders the Scenario Lab).
+    // Phase 2.0 / F13: the whole test declares an explicit 15s budget so the
+    // full journey can never hang the suite indefinitely.
+    const STEP_TIMEOUT = 8000;
+
     render(<App />);
 
     // Step 1: Initial state - Connected
@@ -254,59 +264,62 @@ describe('Phase 14J-C10 Global End-to-End Integration, Visual QA & UX Hardening'
       expect(screen.getByText('AgentShield')).toBeInTheDocument();
       expect(screen.getByTestId('connection-status-badge')).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /overview/i })).toHaveAttribute('aria-selected', 'true');
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 2: Navigate to Threat Activity
     fireEvent.click(screen.getByRole('tab', { name: /threat activity/i }));
     await waitFor(() => {
       expect(screen.getByText('Threat Activity Stream')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 3: Navigate to Security Decisions
     fireEvent.click(screen.getByRole('tab', { name: /security decisions/i }));
     await waitFor(() => {
       expect(screen.getByText('Security Decisions Ledger')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 4: Navigate to Approvals
     fireEvent.click(screen.getByRole('tab', { name: /approvals/i }));
     await waitFor(() => {
       expect(screen.getByText('Approval Workflow Queue')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 5: Navigate to Executions
     fireEvent.click(screen.getByRole('tab', { name: /executions/i }));
     await waitFor(() => {
       expect(screen.getByText('Sandbox Execution Activity')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 6: Navigate to Audit Trail
     fireEvent.click(screen.getByRole('tab', { name: /audit trail/i }));
     await waitFor(() => {
       expect(screen.getByText('Security Audit Trail & Evidence Timeline')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 7: Navigate to Diagnostics
     fireEvent.click(screen.getByRole('tab', { name: /diagnostics/i }));
     await waitFor(() => {
       expect(screen.getByText('Component Health Diagnostics')).toBeInTheDocument();
-    });
+    }, { timeout: STEP_TIMEOUT });
 
     // Step 8: Navigate to Scenario Lab and execute scenario
     fireEvent.click(screen.getByRole('tab', { name: /scenario lab/i }));
     await waitFor(() => {
       expect(screen.getByText('Scenario & Attack Laboratory')).toBeInTheDocument();
       expect(screen.getAllByText('Clean Arithmetic Computation').length).toBeGreaterThanOrEqual(1);
-    });
+    }, { timeout: STEP_TIMEOUT });
 
-    const runButtons = screen.getAllByRole('button', { name: /^run$/i });
-    expect(runButtons.length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(runButtons[0]);
+    // Await the run control: with the Scenario Lab panel mounted only after the
+    // keyed MotionTabPanel remount + scenario fetch, an un-awaited global query
+    // could resolve against a stale or empty dialog under load.
+    const runButton = await screen.findByRole('button', { name: /^run$/i }, { timeout: STEP_TIMEOUT });
+    expect(runButton).toBeInTheDocument();
+    fireEvent.click(runButton);
 
     await waitFor(() => {
       expect(screen.getByText(/VERIFIED PASS/i)).toBeInTheDocument();
-    });
-  });
+    }, { timeout: STEP_TIMEOUT });
+  }, { timeout: 15000 });
 
   it('2. Auth/Connection Matrix: UI strictly distinguishes AUTH REQUIRED from DISCONNECTED', async () => {
     // Scenario A: Disconnected backend (pure network error)
@@ -321,7 +334,7 @@ describe('Phase 14J-C10 Global End-to-End Integration, Visual QA & UX Hardening'
       expect(badge).toHaveTextContent('DISCONNECTED');
       // Auth required companion pill must NOT be rendered when disconnected
       expect(screen.queryByTestId('auth-required-pill')).not.toBeInTheDocument();
-    });
+    }, { timeout: 8000 });
   });
 
   it('3. Cross-Tab Correlation: deep-linking preserves search filter across Threat, Decision, Approval, and Audit', () => {

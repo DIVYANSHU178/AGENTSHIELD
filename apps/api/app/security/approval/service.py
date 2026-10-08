@@ -327,77 +327,93 @@ class ApprovalService:
             correlation_id=approval.request_id,
         )
 
-        # 4. Isolated Subprocess Tool Execution (Process Boundary)
+        # 4. Execution.
+        #    Phase 1.2: for executor="eos" requests AgentShield NEVER executes the
+        #    tool server-side — EOS executes its own handler only after locally
+        #    verifying the v2 token at its choke point. The execution_outcome
+        #    records an explicit non-execution so restart/reporting stay truthful.
         exec_outcome = None
-        try:
-            tool_name = approval.tool_name.lower().strip()
-            params = dict(approval.parameters or {})
+        _eos_executor = str((approval.metadata or {}).get("executor") or "").strip().lower() == "eos"
+        if _eos_executor:
+            exec_outcome = {
+                "success": True,
+                "executed": False,
+                "executor": "eos",
+                "isolated": False,
+                "authorization_id": auth_token.authorization_id,
+                "authorized_at": utc_now().isoformat(),
+                "note": "EOS executes the handler after local v2 Ed25519 verification; AgentShield never executes server-side.",
+            }
+        else:
+            try:
+                tool_name = approval.tool_name.lower().strip()
+                params = dict(approval.parameters or {})
 
-            if tool_name in ("calculator", "math") or tool_name.startswith("calculator."):
-                mod_path = "app.security.execution.tools.real_calculator"
-                cls_name = "RealCalculatorTool"
-            elif tool_name in ("filesystem", "fs", "file") or tool_name.startswith("filesystem."):
-                mod_path = "app.security.execution.tools.real_filesystem"
-                cls_name = "RealFileSystemTool"
-                if "operation" not in params:
-                    if "read" in tool_name:
-                        params["operation"] = "read"
-                    elif "write" in tool_name:
-                        params["operation"] = "write"
-                    elif "list" in tool_name:
-                        params["operation"] = "list"
-                    elif "delete" in tool_name:
-                        params["operation"] = "delete"
-            elif tool_name in ("http", "network", "web") or tool_name.startswith("http."):
-                mod_path = "app.security.execution.tools.real_http"
-                cls_name = "RealHttpTool"
-            elif tool_name in ("command.restricted", "command", "shell") or tool_name.startswith("command."):
-                mod_path = "app.security.execution.tools.real_command"
-                cls_name = "RealCommandTool"
-            elif tool_name == "system.health_check":
-                mod_path = "app.security.execution.tools.real_command"
-                cls_name = "RealCommandTool"
-                params = {"command": "echo healthy"}
-            else:
-                raise ValueError(f"No executable handler registered for tool '{tool_name}'")
+                if tool_name in ("calculator", "math") or tool_name.startswith("calculator."):
+                    mod_path = "app.security.execution.tools.real_calculator"
+                    cls_name = "RealCalculatorTool"
+                elif tool_name in ("filesystem", "fs", "file") or tool_name.startswith("filesystem."):
+                    mod_path = "app.security.execution.tools.real_filesystem"
+                    cls_name = "RealFileSystemTool"
+                    if "operation" not in params:
+                        if "read" in tool_name:
+                            params["operation"] = "read"
+                        elif "write" in tool_name:
+                            params["operation"] = "write"
+                        elif "list" in tool_name:
+                            params["operation"] = "list"
+                        elif "delete" in tool_name:
+                            params["operation"] = "delete"
+                elif tool_name in ("http", "network", "web") or tool_name.startswith("http."):
+                    mod_path = "app.security.execution.tools.real_http"
+                    cls_name = "RealHttpTool"
+                elif tool_name in ("command.restricted", "command", "shell") or tool_name.startswith("command."):
+                    mod_path = "app.security.execution.tools.real_command"
+                    cls_name = "RealCommandTool"
+                elif tool_name == "system.health_check":
+                    mod_path = "app.security.execution.tools.real_command"
+                    cls_name = "RealCommandTool"
+                    params = {"command": "echo healthy"}
+                else:
+                    raise ValueError(f"No executable handler registered for tool '{tool_name}'")
 
-            iso_res = self._isolation.execute_in_subprocess(
-                module_path=mod_path,
-                function_name=cls_name,
-                parameters=params,
-                capability=auth_token.model_dump(mode="json"),
-                require_capability=True,
-            )
+                iso_res = self._isolation.execute_in_subprocess(
+                    module_path=mod_path,
+                    function_name=cls_name,
+                    parameters=params,
+                    capability=auth_token.model_dump(mode="json"),
+                    require_capability=True,
+                )
 
-            if iso_res.get("success"):
-                exec_outcome = {
-                    "success": True,
-                    "executed": True,
-                    "result": iso_res.get("result"),
-                    "isolated": True,
-                    "isolation_level": "isolated_subprocess",
-                    "authorization_id": auth_token.authorization_id,
-                    "executed_at": utc_now().isoformat(),
-                }
-            else:
+                if iso_res.get("success"):
+                    exec_outcome = {
+                        "success": True,
+                        "executed": True,
+                        "result": iso_res.get("result"),
+                        "isolated": True,
+                        "isolation_level": "isolated_subprocess",
+                        "authorization_id": auth_token.authorization_id,
+                        "executed_at": utc_now().isoformat(),
+                    }
+                else:
+                    exec_outcome = {
+                        "success": False,
+                        "executed": True,
+                        "error": iso_res.get("error", "Execution failed in isolated process"),
+                        "isolated": True,
+                        "isolation_level": "isolated_subprocess",
+                        "authorization_id": auth_token.authorization_id,
+                        "executed_at": utc_now().isoformat(),
+                    }
+            except Exception as exc:
                 exec_outcome = {
                     "success": False,
                     "executed": True,
-                    "error": iso_res.get("error", "Execution failed in isolated process"),
+                    "error": str(exc),
                     "isolated": True,
                     "isolation_level": "isolated_subprocess",
-                    "authorization_id": auth_token.authorization_id,
                     "executed_at": utc_now().isoformat(),
                 }
-        except Exception as exc:
-            exec_outcome = {
-                "success": False,
-                "executed": True,
-                "error": str(exc),
-                "isolated": True,
-                "isolation_level": "isolated_subprocess",
-                "executed_at": utc_now().isoformat(),
-            }
 
         if self._repository is not None:
             resolved_approval = self._repository.update_status(

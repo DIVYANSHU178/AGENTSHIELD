@@ -7,6 +7,7 @@ Provides durable storage and operational querying for ThreatActivityItem records
 from typing import List, Optional, Callable
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.models.models import ThreatActivityModel
 from app.security.models import ThreatType, Severity
 from app.security.models.utils import ensure_utc
@@ -34,14 +35,11 @@ class ThreatRepository:
         sanitized_meta = sanitize_audit_payload(dict(item.metadata)) if item.metadata else {}
         session = self._get_session()
         try:
-            # Check for existing threat_id
-            existing = session.scalar(
-                select(ThreatActivityModel).where(ThreatActivityModel.threat_id == item.threat_id)
-            )
-            if existing is not None:
-                return
-
-            record = ThreatActivityModel(
+            # Phase 2.0 / F7 — atomic insert, no check-then-insert race.
+            # The unique constraint on threat_id is authoritative:
+            # ``ON CONFLICT DO NOTHING`` collapses concurrent writers of the
+            # same threat_id into exactly one durable row.
+            values = dict(
                 threat_id=item.threat_id,
                 threat_type=item.threat_type.value,
                 severity=item.severity.value,
@@ -53,7 +51,10 @@ class ThreatRepository:
                 timestamp=item.timestamp,
                 metadata_payload=sanitized_meta,
             )
-            session.add(record)
+            stmt = sqlite_insert(ThreatActivityModel).values(**values).on_conflict_do_nothing(
+                index_elements=["threat_id"]
+            )
+            session.execute(stmt)
             session.commit()
         except Exception:
             session.rollback()

@@ -37,7 +37,9 @@ from app.security.detectors import (
     create_default_registry,
 )
 from app.security.approval.service import ApprovalService, get_approval_service
-from app.security.approval.contracts import ReviewerIdentity
+from app.security.approval.contracts import ReviewerIdentity, ApprovalStatus
+from app.security.enforcement.authorization_v2 import mint_execution_authorization_v2
+from app.security.keys.service import SigningKeyError
 from app.security.audit import SecurityAuditTrail, SecurityEventFactory
 from app.security.models.utils import utc_now
 from app.security.execution.tools import (
@@ -86,8 +88,21 @@ class AgentGatewayService:
         Execute full security gateway evaluation pipeline for an agent action request.
         """
         start_time = time.perf_counter()
-        action_id = str(uuid.uuid4())
+        # Phase 1.2: the EOS client always submits idempotency_key == EOS
+        # ActionRequest.action_id. The server echoes it as action_id and uses it
+        # as the approval correlation key so an APPROVED approval can be
+        # re-verified on resume.
+        raw_idem = (action_request.idempotency_key or "").strip()
+        action_id = raw_idem if raw_idem else str(uuid.uuid4())
         agent_id = action_request.agent_id
+
+        # Phase 1.2: executor routing. "eos" means AgentShield evaluates and
+        # issues a v2 Ed25519 authorization WITHOUT server-side execution; EOS
+        # verifies locally and runs its own handler. Any other/absent value
+        # keeps the AS-native sandbox path unchanged.
+        executor = str((action_request.context or {}).get("executor") or "native").strip().lower()
+        if not executor:
+            executor = "native"
 
         # 1. Agent Authentication & Status Verification
         agent = self._agent_registry.get(agent_id)
@@ -285,10 +300,93 @@ class AgentGatewayService:
             )
 
         elif decision == SecurityDecisionType.REQUIRE_APPROVAL:
-            # Create persistent approval request
+            # Phase 1.2 remote approval lifecycle:
+            #   PENDING  -> REQUIRE_APPROVAL (no execution; same approval_id)
+            #   APPROVED + matching request -> v2 mint + ALLOW(EVALUATED)
+            #   REJECTED / CANCELLED / CLAIMED -> DENY
+            #   EXPIRED  -> REQUIRE_APPROVAL (no execution; approval_status=EXPIRED)
+            #   none     -> create a fresh pending approval
             from app.security.models import SecurityDecision
             from app.security.detectors.builder import build_threat_report
             from app.security.gateway.result import SecurityEvaluationResult
+
+            existing = self._resolve_existing_approval(core_req, action_id)
+            if existing is not None:
+                if existing.status == ApprovalStatus.PENDING:
+                    # Reuse the pending approval (never spawn duplicate approvals
+                    # for the same authorized content across re-submissions).
+                    return AgentActionResponse(
+                        action_id=action_id,
+                        agent_id=agent_id,
+                        decision=GatewayDecision.REQUIRE_APPROVAL,
+                        execution_status=ExecutionStatus.PENDING_APPROVAL,
+                        approval_id=existing.approval_id,
+                        error=decision_reason,
+                        reason=decision_reason,
+                        decision_details={
+                            "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                            "risk_score": risk_score,
+                            "severity": severity.value,
+                            "approval_status": existing.status.value,
+                            "approval_id": existing.approval_id,
+                            "reason": decision_reason,
+                        },
+                        threat_report=threat_report_dict,
+                        duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                    )
+                if existing.status in (ApprovalStatus.REJECTED, ApprovalStatus.CANCELLED, ApprovalStatus.CLAIMED):
+                    return AgentActionResponse(
+                        action_id=action_id,
+                        agent_id=agent_id,
+                        decision=GatewayDecision.DENY,
+                        execution_status=ExecutionStatus.BLOCKED,
+                        error=f"Action was {existing.status.value.lower()} by the reviewer; approval cannot satisfy execution.",
+                        decision_details={
+                            "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                            "risk_score": risk_score,
+                            "severity": severity.value,
+                            "approval_status": existing.status.value,
+                            "approval_id": existing.approval_id,
+                            "rejection": "approval_rejected",
+                        },
+                        threat_report=threat_report_dict,
+                        duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                    )
+                if existing.status == ApprovalStatus.EXPIRED:
+                    return AgentActionResponse(
+                        action_id=action_id,
+                        agent_id=agent_id,
+                        decision=GatewayDecision.REQUIRE_APPROVAL,
+                        execution_status=ExecutionStatus.PENDING_APPROVAL,
+                        approval_id=existing.approval_id,
+                        error=decision_reason,
+                        reason=decision_reason,
+                        decision_details={
+                            "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                            "risk_score": risk_score,
+                            "severity": severity.value,
+                            "approval_status": "EXPIRED",
+                            "approval_id": existing.approval_id,
+                            "reason": "Prior approval expired; a fresh approval is required.",
+                        },
+                        threat_report=threat_report_dict,
+                        duration_ms=(time.perf_counter() - start_time) * 1000.0,
+                    )
+                if existing.status == ApprovalStatus.APPROVED:
+                    return self._approval_satisfied_response(
+                        core_req=core_req,
+                        approval=existing,
+                        agent_id=agent_id,
+                        executor=executor,
+                        action_id=action_id,
+                        matched_rule=matched_rule,
+                        risk_score=risk_score,
+                        severity=severity,
+                        risk_reasons=risk_reasons,
+                        threat_report_dict=threat_report_dict,
+                        decision_reason=decision_reason,
+                        start_time=start_time,
+                    )
 
             threat_rep = build_threat_report(request_id=action_id, signals=threat_signals)
             sec_dec = SecurityDecision(
@@ -304,18 +402,23 @@ class AgentGatewayService:
                 risk_assessment=risk_assessment,
                 decision=sec_dec,
             )
-            approval = self._approval_service.create_approval(eval_res)
+            # executor mode is stored in approval metadata so a post-restart
+            # approval resume fails safe (never executes server-side for eos).
+            approval = self._approval_service.create_approval(eval_res, metadata={"executor": executor})
             return AgentActionResponse(
                 action_id=action_id,
                 agent_id=agent_id,
                 decision=GatewayDecision.REQUIRE_APPROVAL,
                 execution_status=ExecutionStatus.PENDING_APPROVAL,
                 approval_id=approval.approval_id,
+                error=decision_reason,
+                reason=decision_reason,
                 decision_details={
                     "rule_id": matched_rule.rule_id if matched_rule else "unknown",
                     "risk_score": risk_score,
                     "severity": severity.value,
                     "approval_status": approval.status.value,
+                    "approval_id": approval.approval_id,
                     "reason": decision_reason,
                 },
                 threat_report=threat_report_dict,
@@ -323,7 +426,25 @@ class AgentGatewayService:
             )
 
         else:
-            # ALLOW: Execute real tool within isolated subprocess using capability token
+            # ALLOW
+            # Phase 1.2: executor="eos" => AgentShield is the security authority
+            # (evaluates + mints the v2 Ed25519 authorization) while EOS runs the
+            # handler. NO server-side execution; EVALUATED, not EXECUTED.
+            if executor == "eos":
+                return self._eos_allow_response(
+                    core_req=core_req,
+                    agent_id=agent_id,
+                    action_id=action_id,
+                    matched_rule=matched_rule,
+                    risk_score=risk_score,
+                    severity=severity,
+                    risk_reasons=risk_reasons,
+                    threat_report_dict=threat_report_dict,
+                    decision_reason=decision_reason,
+                    start_time=start_time,
+                )
+
+            # AS-native sandbox path (unchanged: internal HMAC credential + isolated subprocess)
             try:
                 from app.security.enforcement.authorization import mint_execution_authorization
                 auth_token = mint_execution_authorization(
@@ -366,6 +487,278 @@ class AgentGatewayService:
                     threat_report=threat_report_dict,
                     duration_ms=duration_ms,
                 )
+
+    # ----------------------------------------------------------------------
+    # Phase 1.2 — v2 authorization + approval-resume helpers
+    # ----------------------------------------------------------------------
+
+    def _resolve_existing_approval(self, core_req, action_id):
+        """
+        Find a prior approval for this action: first by the exact
+        idempotency/action_id (idempotent replay), then by structural equality
+        of the authorized request (tool/action/category/target/params/agent) so
+        an EOS resume — which mints a fresh ActionRequest.action_id — still
+        re-verifies the EXACT approved request instead of silently re-gating.
+        """
+        from app.security.approval.contracts import ApprovalStatus
+
+        by_id = self._approval_service.get_approval_by_request_id(action_id)
+        if by_id is not None:
+            try:
+                return self._approval_service.get_approval(by_id.approval_id)
+            except Exception:
+                return by_id
+        for candidate in self._approval_service.list_approvals(limit=100):
+            try:
+                fresh = self._approval_service.get_approval(candidate.approval_id)
+            except Exception:
+                continue
+            if self._approval_matches_request(fresh, core_req):
+                return fresh
+        return None
+
+    def _approval_matches_request(self, approval, core_req) -> bool:
+        """Structural re-verification: does this approval bind the CURRENT
+        request content (the exact tool/target/params/principal/action fields)?"""
+        try:
+            if approval.agent.agent_id != core_req.agent.agent_id:
+                return False
+            if approval.tool_name != core_req.tool_name:
+                return False
+            if approval.action != core_req.action:
+                return False
+            if approval.tool_category != core_req.tool_category:
+                return False
+            if approval.target != core_req.target:
+                return False
+            if dict(approval.parameters or {}) != dict(core_req.parameters or {}):
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _mint_v2_authorization(
+        self,
+        core_req,
+        action_id: str,
+        matched_rule,
+        risk_score: float,
+        approval_id: Optional[str] = None,
+        fingerprint: Optional[str] = None,
+        policy_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Mint the EOS-facing v2 token (protocol §3.1/§5). Raises SigningKeyError
+        when the signing plane is unavailable (mint fails closed).
+        """
+        principal = core_req.agent.agent_id
+        fp = (fingerprint or "").strip()
+        if not fp:
+            fp = str((core_req.metadata or {}).get("fingerprint") or "")
+        # EOS always supplies context.fingerprint; without it there is no
+        # trustworthy request binding — fail closed.
+        import re
+        if not re.fullmatch(r"[0-9a-f]{64}", fp):
+            raise ValueError("EOS request fingerprint missing/malformed: cannot bind v2 authorization.")
+        issuer = None  # resolved inside mint via key manager
+        return mint_execution_authorization_v2(
+            action_id=action_id,
+            correlation_id=action_id,
+            request_fingerprint=fp,
+            principal=principal,
+            tool=core_req.tool_name,
+            target=core_req.target or "",
+            parameters=core_req.parameters,
+            policy_id=policy_id or (matched_rule.rule_id if matched_rule else "policy.allow"),
+            risk_score=risk_score,
+            approval_id=approval_id,
+        )
+
+    def _eos_allow_response(
+        self,
+        core_req,
+        agent_id: str,
+        action_id: str,
+        matched_rule,
+        risk_score: float,
+        severity,
+        risk_reasons,
+        threat_report_dict: dict,
+        decision_reason: str,
+        start_time: float,
+    ) -> AgentActionResponse:
+        try:
+            token = self._mint_v2_authorization(
+                core_req, action_id, matched_rule, risk_score
+            )
+        except SigningKeyError:
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.DENY,
+                execution_status=ExecutionStatus.BLOCKED,
+                error="AgentShield signing key unavailable; authorization mint failed closed.",
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "rejection": "signing_key_missing",
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+        except Exception as exc:
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.DENY,
+                execution_status=ExecutionStatus.BLOCKED,
+                error=f"v2 authorization mint failed closed: {exc}",
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "rejection": "authorization_mint_failed",
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+        duration_ms = (time.perf_counter() - start_time) * 1000.0
+        return AgentActionResponse(
+            action_id=action_id,
+            agent_id=agent_id,
+            decision=GatewayDecision.ALLOW,
+            execution_status=ExecutionStatus.EVALUATED,
+            protocol_version="v2",
+            authorization=token,
+            decision_details={
+                "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                "risk_score": risk_score,
+                "severity": severity.value,
+                "authorization_id": token["authorization_id"],
+                "protocol_version": "v2",
+                "reason": decision_reason,
+                "executor": "eos",
+                "isolated": False,
+            },
+            threat_report=threat_report_dict,
+            duration_ms=duration_ms,
+        )
+
+    def _approval_satisfied_response(
+        self,
+        core_req,
+        approval,
+        agent_id: str,
+        executor: str,
+        action_id: str,
+        matched_rule,
+        risk_score: float,
+        severity,
+        risk_reasons,
+        threat_report_dict: dict,
+        decision_reason: str,
+        start_time: float,
+    ) -> AgentActionResponse:
+        from app.security.approval.contracts import ApprovalStatus
+
+        # Structural re-validation of the EXACT approved request (fail safe).
+        if not self._approval_matches_request(approval, core_req):
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.REQUIRE_APPROVAL,
+                execution_status=ExecutionStatus.PENDING_APPROVAL,
+                approval_id=approval.approval_id,
+                error=decision_reason,
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "approval_status": approval.status.value,
+                    "approval_id": approval.approval_id,
+                    "reason": "Approval fingerprint mismatch; fresh approval required.",
+                    "rejection": "approval_fingerprint_mismatch",
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+
+        if executor != "eos":
+            # Native clients resolve approvals through ApprovalService.approve()
+            # (server-side execution). Surface the still-valid approval only.
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.REQUIRE_APPROVAL,
+                execution_status=ExecutionStatus.PENDING_APPROVAL,
+                approval_id=approval.approval_id,
+                reason=decision_reason,
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "approval_status": approval.status.value,
+                    "approval_id": approval.approval_id,
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+
+        # executor == "eos": approval is APPROVED and matches the exact request
+        # => the single mint moment for the v2 token (plan §8.6 / mandate §14).
+        try:
+            token = self._mint_v2_authorization(
+                core_req,
+                action_id,
+                matched_rule,
+                risk_score,
+                approval_id=approval.approval_id,
+                policy_id="approval.human_authorized",
+            )
+        except SigningKeyError:
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.DENY,
+                execution_status=ExecutionStatus.BLOCKED,
+                error="AgentShield signing key unavailable; authorization mint failed closed.",
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "rejection": "signing_key_missing",
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+        except Exception as exc:
+            return AgentActionResponse(
+                action_id=action_id,
+                agent_id=agent_id,
+                decision=GatewayDecision.DENY,
+                execution_status=ExecutionStatus.BLOCKED,
+                error=f"v2 authorization mint failed closed: {exc}",
+                decision_details={
+                    "rule_id": matched_rule.rule_id if matched_rule else "unknown",
+                    "rejection": "authorization_mint_failed",
+                },
+                threat_report=threat_report_dict,
+                duration_ms=(time.perf_counter() - start_time) * 1000.0,
+            )
+        duration_ms = (time.perf_counter() - start_time) * 1000.0
+        return AgentActionResponse(
+            action_id=action_id,
+            agent_id=agent_id,
+            decision=GatewayDecision.ALLOW,
+            execution_status=ExecutionStatus.EVALUATED,
+            protocol_version="v2",
+            authorization=token,
+            approval_id=approval.approval_id,
+            decision_details={
+                "rule_id": "approval.human_authorized",
+                "risk_score": risk_score,
+                "severity": severity.value,
+                "authorization_id": token["authorization_id"],
+                "protocol_version": "v2",
+                "approval_status": "APPROVED",
+                "approval_id": approval.approval_id,
+                "executor": "eos",
+                "isolated": False,
+            },
+            threat_report=threat_report_dict,
+            duration_ms=duration_ms,
+        )
 
     def _execute_real_tool(
         self,

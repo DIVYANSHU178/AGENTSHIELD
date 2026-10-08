@@ -492,7 +492,21 @@ class TestStaticSecurityAndEndpointInventory:
         routes = get_all_routes()
         sec_routes = [r for r in routes if r["path"].startswith("/api/v1/security/")]
         assert len(sec_routes) >= 10
-        assert all(r["auth_required"] for r in sec_routes)
+        # Phase 1.2 protocol §3.2: the signing public-key discovery endpoints are
+        # deliberately PUBLIC (a public key is not a secret; EOS must bootstrap
+        # trust without holding a credential). They are the SOLE documented
+        # exemption to the security-namespace auth invariant, so we assert they
+        # are the ONLY auth-free security routes and every other one is locked.
+        PUBLIC_SIGNING_ENDPOINTS = {
+            "/api/v1/security/signing/public-key",
+            "/api/v1/security/signing/public-keys",
+        }
+        public_sec = [r for r in sec_routes if not r["auth_required"]]
+        assert {r["path"] for r in public_sec} == PUBLIC_SIGNING_ENDPOINTS, public_sec
+        assert all(r["method"] == "GET" for r in public_sec)
+        assert all(
+            r["auth_required"] for r in sec_routes if r["path"] not in PUBLIC_SIGNING_ENDPOINTS
+        )
 
     def test_endpoint_inventory_approval_mutation_requires_permission(self):
         """56. Approval mutation endpoints require RESOLVE_APPROVALS or CANCEL_APPROVAL permission."""

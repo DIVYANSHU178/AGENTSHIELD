@@ -238,3 +238,50 @@ class DefaultDenyRule(PolicyRule):
             SecurityDecisionType.BLOCK,
             "Request blocked by default fail-closed security boundary (no preceding allow policy matched).",
         )
+
+
+class Phase12ApprovalProbeRule(PolicyRule):
+    """
+    Rule: Phase 1.2 E2E approval probe (Priority 55).
+
+    Gated by AGENTSHIELD_PHASE12_TEST_POLICY=1 on the server process. When the
+    canonical EOS probe tool ``system_time`` is requested with
+    ``parameters.zone == "approval-probe"`` it MUST require human approval even
+    though its risk profile alone would ALLOW. This validates the full remote
+    approval lifecycle (REQUIRE_APPROVAL → human approve → approval-satisfied
+    ALLOW + mint → EOS-local verify → execute).
+    """
+
+    RULE_ID = "policy.approval.probe"
+    PRIORITY = 55
+    DESCRIPTION = "Require human approval for the Phase 1.2 E2E approval probe action."
+
+    @property
+    def rule_id(self) -> str:
+        return self.RULE_ID
+
+    @property
+    def priority(self) -> int:
+        return self.PRIORITY
+
+    @property
+    def description(self) -> str:
+        return self.DESCRIPTION
+
+    def evaluate(self, context: PolicyContext) -> Optional[Tuple[SecurityDecisionType, str]]:
+        from app.config.settings import settings
+        if not bool(getattr(settings, "AGENTSHIELD_PHASE12_TEST_POLICY", False)):
+            return None
+        request = getattr(context, "request", None)
+        if request is None:
+            return None
+        tool_name = str(getattr(request, "tool_name", "") or "")
+        if tool_name != "system_time":
+            return None
+        parameters = getattr(request, "parameters", None) or {}
+        if str(parameters.get("zone", "")) == "approval-probe":
+            return (
+                SecurityDecisionType.REQUIRE_APPROVAL,
+                "Request requires human approval: Phase 1.2 approval-probe policy.",
+            )
+        return None

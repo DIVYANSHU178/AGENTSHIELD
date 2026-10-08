@@ -1,16 +1,51 @@
-from sqlalchemy import create_engine
+import sqlite3
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator, Optional, Any
 from app.config import settings
 from app.database.base import Base
 
-connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+# Phase 2.0 / F7 — SQLite robustness hardening.
+#   * ``timeout=5.0`` -> sqlite3 BUSY TIMEOUT: writers wait up to 5s for a
+#     contended database instead of immediately raising "database is locked".
+#   * WAL journal mode -> readers never block writers; concurrent readers are
+#     allowed during a write.
+#   * foreign_keys=ON -> referential integrity at the engine level.
+SQLITE_BUSY_TIMEOUT_SECONDS = 5.0
+SQLITE_JOURNAL_MODE = "WAL"
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    echo=False
-)
+
+def _sqlite_connect_args(url: Any) -> dict:
+    """Connect arguments for sqlite engines (busy timeout + thread safety)."""
+    if str(url).startswith("sqlite"):
+        return {"check_same_thread": False, "timeout": SQLITE_BUSY_TIMEOUT_SECONDS}
+    return {}
+
+
+def _apply_sqlite_pragmas(dbapi_connection, connection_record) -> None:
+    """Enable WAL / busy_timeout / foreign_keys on every new sqlite connection."""
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute(f"PRAGMA journal_mode={SQLITE_JOURNAL_MODE};")
+        cursor.execute(f"PRAGMA busy_timeout={int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)};")
+        cursor.execute("PRAGMA foreign_keys=ON;")
+        cursor.close()
+    except Exception:
+        pass
+
+
+def _build_engine(url: Any):
+    """Create an engine with the sqlite WAL/busy-timeout hardening applied."""
+    conn_args = _sqlite_connect_args(url)
+    eng = create_engine(url, connect_args=conn_args, echo=False)
+    if str(url).startswith("sqlite"):
+        event.listen(eng, "connect", _apply_sqlite_pragmas)
+    return eng
+
+
+engine = _build_engine(settings.DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -68,8 +103,7 @@ def configure_database(target_url: Optional[str] = None) -> Any:
     """
     global engine, SessionLocal
     url = target_url or settings.DATABASE_URL
-    conn_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    engine = create_engine(url, connect_args=conn_args, echo=False)
+    engine = _build_engine(url)
     SessionLocal.configure(bind=engine)
 
     # Invalidate singleton services so subsequent calls re-initialize with the new database

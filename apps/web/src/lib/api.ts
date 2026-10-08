@@ -23,13 +23,13 @@ import {
  * Resolves the authoritative backend API base URL with the following precedence:
  * 1. Explicit VITE_API_BASE_URL environment variable override (if defined and non-empty).
  * 2. Dynamically derived from the current browser window.location:
- *    `${protocol}//${hostname}:8000`
+ *    `${protocol}//${hostname}:8001`
  *    Examples:
- *      http://localhost:5173    -> http://localhost:8000
- *      http://127.0.0.1:5173    -> http://127.0.0.1:8000
- *      http://172.25.1.97:5173  -> http://172.25.1.97:8000
- *      http://192.168.1.20:5173 -> http://192.168.1.20:8000
- * 3. Fallback to 'http://localhost:8000' if window or location is not available.
+ *      http://localhost:5173    -> http://localhost:8001
+ *      http://127.0.0.1:5173    -> http://127.0.0.1:8001
+ *      http://172.25.1.97:5173  -> http://172.25.1.97:8001
+ *      http://192.168.1.20:5173 -> http://192.168.1.20:8001
+ * 3. Fallback to 'http://localhost:8001' if window or location is not available.
  */
 export function getApiBaseUrl(): string {
   const rawEnv = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -46,11 +46,11 @@ export function getApiBaseUrl(): string {
       const cleanHostname = hostname.includes(':') && !hostname.startsWith('[')
         ? `[${hostname}]`
         : hostname;
-      return `${protocol}//${cleanHostname}:8000`;
+      return `${protocol}//${cleanHostname}:8001`;
     }
   }
 
-  return 'http://localhost:8000';
+  return 'http://localhost:8001';
 }
 
 export const API_BASE_URL = getApiBaseUrl();

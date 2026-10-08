@@ -15,6 +15,7 @@ from app.agent.models import AgentRegistration, AgentStatus
 from app.models.models import AgentRegistrationModel
 from app.database.session import SessionLocal
 from app.security.models.utils import utc_now, ensure_utc
+from app.config.settings import settings
 
 
 def hash_agent_key(key: str) -> str:
@@ -244,6 +245,24 @@ class AgentRegistry:
     def seed_default_agents(self) -> None:
         """Seed default reference agents idempotently."""
         defaults = [
+            (
+                AgentRegistration(
+                    agent_id="eos_core",
+                    name="EOS Core Agent",
+                    description=(
+                        "Canonical machine principal for the EOS desktop automation "
+                        "client. Evaluates with the standalone AgentShield service on "
+                        "127.0.0.1:8001 and executes tools itself after verifying the "
+                        "v2 Ed25519 ExecutionAuthorizationToken locally."
+                    ),
+                    capabilities=["system_telemetry", "desktop_automation"],
+                    assigned_roles=["AGENT"],
+                    max_budget_per_hour=100.0,
+                    allowed_tools=["system_time", "open_app", "wait_for_window", "focus_window"],
+                    status=AgentStatus.ACTIVE,
+                ),
+                settings.AGENTSHIELD_EOS_CORE_DEV_AGENT_KEY,
+            ),
             (
                 AgentRegistration(
                     agent_id="reference-autonomous-agent",

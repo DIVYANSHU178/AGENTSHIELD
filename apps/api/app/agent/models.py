@@ -35,6 +35,10 @@ class ExecutionStatus(str, Enum):
     BLOCKED = "BLOCKED"
     PENDING_APPROVAL = "PENDING_APPROVAL"
     FAILED = "FAILED"
+    # Phase 1.2: a security decision was rendered and authorized WITHOUT a
+    # server-side execution (executor="eos" mode) — EOS executes the handler
+    # after verifying the v2 token.
+    EVALUATED = "EVALUATED"
 
 
 class AgentRegistration(BaseModel):
@@ -105,6 +109,11 @@ class AgentActionResponse(BaseModel):
     reason: Optional[str] = Field(default=None, description="Friendly policy reason or error explanation")
     approval_id: Optional[str] = Field(default=None, description="Approval request ID if status is PENDING_APPROVAL")
     decision_details: Dict[str, Any] = Field(default_factory=dict, description="Policy and threat scan metadata")
+    # Phase 1.2: v2 Ed25519 authorization artifact (ExecutionAuthorizationToken
+    # field-dict) returned to the EOS client on ALLOW so EOS can verify locally
+    # at its choke point before invoking the handler.
+    protocol_version: Optional[str] = Field(default=None, description="Authorization protocol version (v2)")
+    authorization: Optional[Dict[str, Any]] = Field(default=None, description="v2 execution authorization token fields")
     threat_report: Dict[str, Any] = Field(default_factory=lambda: {"threat_detected": False, "signals": []}, description="Threat report metadata")
     execution: Optional[Dict[str, Any]] = Field(default=None, description="Tool execution outcome envelope")
     audit_id: Optional[str] = Field(default=None, description="Security audit log event ID")
